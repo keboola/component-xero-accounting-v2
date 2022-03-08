@@ -51,7 +51,9 @@ class XeroClient(HttpClient):
                    'client_id': self.client_id,
                    'client_secret': self.client_secret}
         try:
-            return self.post(data=payload)
+            token_dict = self.post(data=payload)
+            self.refresh_token = token_dict['refresh_token']
+            return token_dict
         except HTTPError as http_error:
             raise XeroClientException("Failed to authenticate, invalid refresh token. "
                                       "Re-authenticate the component") from http_error
