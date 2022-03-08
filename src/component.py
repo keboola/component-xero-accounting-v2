@@ -38,12 +38,13 @@ class Component(ComponentBase):
         client_id = oauth_credentials.appKey
         client_secret = oauth_credentials.appSecret
         refresh_token = oauth_credentials.data.get("refresh_token")
+        scope = oauth_credentials.data.get("scope")
 
         state = self.get_state_file()
         if state.get(KEY_STATE_REFRESH_TOKEN):
             refresh_token = state.get(KEY_STATE_REFRESH_TOKEN)
 
-        client = XeroClient(client_id, client_secret, refresh_token)
+        client = XeroClient(client_id, client_secret, refresh_token, scope, oauth_data_dict=oauth_credentials.data)
         client.login()
 
         self.write_state_file({KEY_STATE_REFRESH_TOKEN: client.refresh_token})
