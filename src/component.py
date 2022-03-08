@@ -2,75 +2,67 @@
 Template Component main class.
 
 """
-import csv
+import json
 import logging
-from datetime import datetime
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 
+from xero import XeroClient
+
 # configuration variables
-KEY_API_TOKEN = '#api_token'
-KEY_PRINT_HELLO = 'print_hello'
+KEY_LAST_MODIFIED = 'last_modified'
+KEY_ENDPOINTS = 'endpoints'
+
+KEY_STATE_REFRESH_TOKEN = "#refresh_token"
 
 # list of mandatory parameters => if some is missing,
 # component will fail with readable message on initialization.
-REQUIRED_PARAMETERS = [KEY_PRINT_HELLO]
+REQUIRED_PARAMETERS = [KEY_ENDPOINTS]
 REQUIRED_IMAGE_PARS = []
 
 
 class Component(ComponentBase):
-    """
-        Extends base class for general Python components. Initializes the CommonInterface
-        and performs configuration validation.
-
-        For easier debugging the data folder is picked up by default from `../data` path,
-        relative to working directory.
-
-        If `debug` parameter is present in the `config.json`, the default logger is set to verbose DEBUG mode.
-    """
-
     def __init__(self):
         super().__init__()
 
     def run(self):
-        """
-        Main execution code
-        """
-
-        # ####### EXAMPLE TO REMOVE
-        # check for missing configuration parameters
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
         self.validate_image_parameters(REQUIRED_IMAGE_PARS)
+
         params = self.configuration.parameters
-        # Access parameters in data/config.json
-        if params.get(KEY_PRINT_HELLO):
-            logging.info("Hello World")
+        # last_modified = params.get(KEY_LAST_MODIFIED)
+        endpoints = params.get(KEY_ENDPOINTS)
 
-        # get last state data/in/state.json from previous run
-        previous_state = self.get_state_file()
-        logging.info(previous_state.get('some_state_parameter'))
+        oauth_credentials = self.configuration.oauth_credentials
+        client_id = oauth_credentials.appKey
+        client_secret = oauth_credentials.appSecret
+        refresh_token = oauth_credentials.data.get("refresh_token")
 
-        # Create output table (Tabledefinition - just metadata)
-        table = self.create_out_table_definition('output.csv', incremental=True, primary_key=['timestamp'])
+        state = self.get_state_file()
+        if state.get(KEY_STATE_REFRESH_TOKEN):
+            refresh_token = state.get(KEY_STATE_REFRESH_TOKEN)
 
-        # get file path of the table (data/out/tables/Features.csv)
-        out_table_path = table.full_path
-        logging.info(out_table_path)
+        client = XeroClient(client_id, client_secret, refresh_token)
+        client.login()
 
-        # DO whatever and save into out_table_path
-        with open(table.full_path, mode='wt', encoding='utf-8', newline='') as out_file:
-            writer = csv.DictWriter(out_file, fieldnames=['timestamp'])
-            writer.writeheader()
-            writer.writerow({"timestamp": datetime.now().isoformat()})
+        self.write_state_file({KEY_STATE_REFRESH_TOKEN: client.refresh_token})
 
-        # Save table manifest (output.csv.manifest) from the tabledefinition
-        self.write_manifest(table)
+        for endpoint in endpoints:
+            logging.info(f"Fetching data for endpoint : {endpoint}")
+            # TODO implement endpoints
+            # TODO parse endpoints
+            # TODO write endpoints to storage
 
-        # Write new state - will be available next run
-        self.write_state_file({"some_state_parameter": "value"})
+        # endpoint_definitions = self.get_endpoint_definitions()
+        # account_data_parser = JSONParser(**endpoint_definitions.get("account"))
+        # for account_data in client.get_accounts("2020-02-06T12:17:43.202-08:00"):
+        #     parsed_data = account_data_parser.parse_data(account_data.to_dict())
 
-        # ####### EXAMPLE TO REMOVE END
+    @staticmethod
+    def get_endpoint_definitions():
+        with open("endpoint_definitions/endpoint_definitions.json", 'r') as f:
+            return json.load(f)
 
 
 """
@@ -79,7 +71,6 @@ class Component(ComponentBase):
 if __name__ == "__main__":
     try:
         comp = Component()
-        # this triggers the run method by default and is controlled by the configuration.action parameter
         comp.execute_action()
     except UserException as exc:
         logging.exception(exc)
