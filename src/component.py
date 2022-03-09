@@ -40,9 +40,9 @@ class Component(ComponentBase):
         oauth_credentials = self.configuration.oauth_credentials
 
         state = self.get_state_file()
-        # TODO: only override if state token not expired
-        if state.get(KEY_STATE_OAUTH_TOKEN_DICT):
-            oauth_credentials.data = state.get(KEY_STATE_OAUTH_TOKEN_DICT)
+        oauth_token_dict = state.get(KEY_STATE_OAUTH_TOKEN_DICT)
+        if oauth_token_dict and oauth_token_dict['expires_at'] > oauth_credentials.data['expires_at']:
+            oauth_credentials.data = oauth_token_dict
 
         self.client = XeroClient(oauth_credentials)
         self.client.force_refresh_token()
@@ -81,11 +81,6 @@ class Component(ComponentBase):
                                                      #  incremental=self.incremental_flag
                                                      )
         self.write_manifest(table_def)
-        # print(all_accounts_dict)
-
-        # TODO implement endpoints
-        # TODO parse endpoints
-        # TODO write endpoints to storage
 
     @staticmethod
     def get_endpoint_definitions():
