@@ -32,23 +32,20 @@ class Component(ComponentBase):
         self.validate_image_parameters(REQUIRED_IMAGE_PARS)
 
         params = self.configuration.parameters
-        modified_since = dateparser.parse(params.get(KEY_MODIFIED_SINCE)).isoformat()
+        modified_since = dateparser.parse(
+            params.get(KEY_MODIFIED_SINCE)).isoformat()
         endpoints = params.get(KEY_ENDPOINTS)
 
         oauth_credentials = self.configuration.oauth_credentials
-        # client_id = oauth_credentials.appKey
-        # client_secret = oauth_credentials.appSecret
-        # refresh_token = oauth_credentials.data.get("refresh_token")
-        # scope = oauth_credentials.data.get("scope")
 
         state = self.get_state_file()
         if state.get(KEY_STATE_REFRESH_TOKEN):
-            oauth_credentials.data['refresh_token'] = state.get(KEY_STATE_REFRESH_TOKEN)
+            oauth_credentials.data['refresh_token'] = state.get(
+                KEY_STATE_REFRESH_TOKEN)
 
         client = XeroClient(oauth_credentials)
-        client.login()
 
-        self.write_state_file({KEY_STATE_REFRESH_TOKEN: client.get_refresh_token()})
+        self.write_state_file({KEY_STATE_REFRESH_TOKEN: client.refresh_token})
 
         for endpoint in endpoints:
             logging.info(f"Fetching data for endpoint : {endpoint}")
