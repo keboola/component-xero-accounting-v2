@@ -5,7 +5,7 @@ from xero_python.identity import IdentityApi
 from xero_python.accounting import AccountingApi
 from xero_python.api_client import ApiClient, serialize
 from xero_python.api_client.configuration import Configuration
-from xero_python.api_client.oauth2 import OAuth2Token, TokenApi
+from xero_python.api_client.oauth2 import OAuth2Token
 from xero_python.accounting.models.accounts import Accounts
 
 
@@ -20,13 +20,13 @@ class XeroClient:
                                        client_secret=oauth_credentials.appSecret)
         oauth2_token_obj.update_token(**self._oauth_token_dict)
         self._api_client = ApiClient(Configuration(oauth2_token=oauth2_token_obj),
-                                     oauth2_token_getter=self._obtain_xero_oauth2_token,
-                                     oauth2_token_saver=self._store_xero_oauth2_token)
+                                     oauth2_token_getter=self.get_xero_oauth2_token_dict,
+                                     oauth2_token_saver=self._set_xero_oauth2_token_dict)
 
-    def _obtain_xero_oauth2_token(self) -> Dict:
+    def get_xero_oauth2_token_dict(self) -> Dict:
         return self._oauth_token_dict
 
-    def _store_xero_oauth2_token(self, new_token: Dict) -> None:
+    def _set_xero_oauth2_token_dict(self, new_token: Dict) -> None:
         self._oauth_token_dict = new_token
 
     def _get_tenants(self) -> List[str]:

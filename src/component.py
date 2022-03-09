@@ -11,7 +11,7 @@ from xero import XeroClient
 KEY_MODIFIED_SINCE = 'modified_since'
 KEY_ENDPOINTS = 'endpoints'
 
-KEY_STATE_REFRESH_TOKEN = "#refresh_token"
+KEY_STATE_OAUTH_TOKEN_DICT = "#oauth_token_dict"
 
 # list of mandatory parameters => if some is missing,
 # component will fail with readable message on initialization.
@@ -35,14 +35,14 @@ class Component(ComponentBase):
         oauth_credentials = self.configuration.oauth_credentials
 
         state = self.get_state_file()
-        if state.get(KEY_STATE_REFRESH_TOKEN):
-            oauth_credentials.data['refresh_token'] = state.get(
-                KEY_STATE_REFRESH_TOKEN)
+        if state.get(KEY_STATE_OAUTH_TOKEN_DICT):
+            oauth_credentials.data = state.get(KEY_STATE_OAUTH_TOKEN_DICT)
 
         client = XeroClient(oauth_credentials)
         client.force_refresh_token()
 
-        self.write_state_file({KEY_STATE_REFRESH_TOKEN: client.refresh_token})
+        self.write_state_file(
+            {KEY_STATE_OAUTH_TOKEN_DICT: client.get_xero_oauth2_token_dict()})
 
         for endpoint in endpoints:
             logging.info(f"Fetching data for endpoint : {endpoint}")
