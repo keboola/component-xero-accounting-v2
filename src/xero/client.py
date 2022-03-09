@@ -41,7 +41,7 @@ class XeroClient:
     def force_refresh_token(self):
         self._api_client.refresh_oauth2_token()
 
-    def get_accounts(self, modified_since: str = None, **kwargs) -> Tuple[str, Iterable[Accounts]]:
+    def get_accounts(self, modified_since: str = None, **kwargs) -> Iterable[Tuple[str, Accounts]]:
         accounting_api = AccountingApi(self._api_client)
         tenant_ids = self._get_tenants()
         for tenant_id in tenant_ids:
