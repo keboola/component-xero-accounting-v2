@@ -41,10 +41,11 @@ class XeroClient:
     def force_refresh_token(self):
         self._api_client.refresh_oauth2_token()
 
-    def get_accounts(self, modified_since: str = None, **kwargs) -> Iterable[Tuple[str, Accounts]]:
+    def get_accounts(self, modified_since: str = None, **kwargs) -> Iterable[Tuple[str, Dict]]:
         accounting_api = AccountingApi(self._api_client)
         tenant_ids = self._get_tenants()
         for tenant_id in tenant_ids:
-            api_response = accounting_api.get_accounts(
+            tenant_accounts: Accounts = accounting_api.get_accounts(
                 tenant_id, modified_since, **kwargs)
-            yield (tenant_id, api_response)
+            accounts_dict = tenant_accounts.to_dict()
+            yield (tenant_id, accounts_dict)

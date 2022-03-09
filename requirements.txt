@@ -4,3 +4,4 @@ keboola.http-client
 mock
 freezegun
 xero-python==1.13.0
+dateparser
