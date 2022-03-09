@@ -38,10 +38,6 @@ class XeroClient:
 
         return available_tenants
 
-    @property
-    def refresh_token(self) -> str:
-        return self._oauth_token_dict['refresh_token']
-
     def force_refresh_token(self):
         self._api_client.refresh_oauth2_token()
 
