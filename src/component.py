@@ -76,7 +76,7 @@ class Component(ComponentBase):
         table_def = self.create_out_table_definition(table_name,
                                                      # destination=f"{self.out_bucket}.{self.table_name}",
                                                      primary_key=primary_key,
-                                                     columns=field_names,
+                                                     #  columns=field_names,
                                                      is_sliced=False,
                                                      #  incremental=self.incremental_flag
                                                      )
