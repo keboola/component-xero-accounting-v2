@@ -44,6 +44,7 @@ class Component(ComponentBase):
                 KEY_STATE_REFRESH_TOKEN)
 
         client = XeroClient(oauth_credentials)
+        client.force_refresh_token()
 
         self.write_state_file({KEY_STATE_REFRESH_TOKEN: client.refresh_token})
 
