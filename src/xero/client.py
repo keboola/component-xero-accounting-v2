@@ -1,10 +1,5 @@
-import time
-import logging
-
-from requests import HTTPError
 from typing import Dict, Iterable, List, Tuple
 
-# from keboola.http_client import HttpClient
 from keboola.component.dao import OauthCredentials
 from xero_python.identity import IdentityApi
 from xero_python.accounting import AccountingApi
@@ -12,8 +7,6 @@ from xero_python.api_client import ApiClient, serialize
 from xero_python.api_client.configuration import Configuration
 from xero_python.api_client.oauth2 import OAuth2Token, TokenApi
 from xero_python.accounting.models.accounts import Accounts
-
-# TOKEN_URL = "https://identity.xero.com/connect/token?="
 
 
 class XeroClientException(Exception):
@@ -23,13 +16,12 @@ class XeroClientException(Exception):
 class XeroClient:
     def __init__(self, oauth_credentials: OauthCredentials) -> None:
         self._oauth_token_dict = oauth_credentials.data
-
         oauth2_token_obj = OAuth2Token(client_id=oauth_credentials.appKey,
                                        client_secret=oauth_credentials.appSecret)
         oauth2_token_obj.update_token(**self._oauth_token_dict)
         self._api_client = ApiClient(Configuration(oauth2_token=oauth2_token_obj),
-                                    oauth2_token_getter=self._obtain_xero_oauth2_token,
-                                    oauth2_token_saver=self._store_xero_oauth2_token)
+                                     oauth2_token_getter=self._obtain_xero_oauth2_token,
+                                     oauth2_token_saver=self._store_xero_oauth2_token)
 
     def _obtain_xero_oauth2_token(self) -> Dict:
         return self._oauth_token_dict
@@ -49,7 +41,7 @@ class XeroClient:
     @property
     def refresh_token(self) -> str:
         return self._oauth_token_dict['refresh_token']
-    
+
     def force_refresh_token(self):
         self._api_client.refresh_oauth2_token()
 
