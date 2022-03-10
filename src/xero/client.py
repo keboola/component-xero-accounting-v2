@@ -6,7 +6,7 @@ from xero_python.accounting import AccountingApi
 from xero_python.api_client import ApiClient, serialize
 from xero_python.api_client.configuration import Configuration
 from xero_python.api_client.oauth2 import OAuth2Token
-from xero_python.accounting.models.accounts import Accounts
+import xero_python.accounting.models as xero_models
 
 
 class XeroClientException(Exception):
@@ -41,11 +41,15 @@ class XeroClient:
     def force_refresh_token(self):
         self._api_client.refresh_oauth2_token()
 
-    def get_accounts(self, modified_since: str = None, **kwargs) -> Iterable[Tuple[str, Dict]]:
+    @staticmethod
+    def get_account_field_names() -> List[str]:
+        return list(xero_models.Account.attribute_map.values())
+    
+    def get_accounts(self, modified_since: str = None, **kwargs) -> Iterable[Tuple[str, List]]:
         accounting_api = AccountingApi(self._api_client)
         tenant_ids = self._get_tenants()
         for tenant_id in tenant_ids:
-            tenant_accounts: Accounts = accounting_api.get_accounts(
+            tenant_accounts: xero_models.Accounts = accounting_api.get_accounts(
                 tenant_id, modified_since, **kwargs)
-            accounts_dict = tenant_accounts.to_dict()
-            yield (tenant_id, accounts_dict)
+            accounts_list = serialize(tenant_accounts)['Accounts']
+            yield (tenant_id, accounts_list)

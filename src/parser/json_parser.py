@@ -2,7 +2,6 @@ import logging
 from typing import List, Dict
 from typing import Tuple
 from typing import Optional
-from enum import Enum
 
 
 class JSONParserError(Exception):
@@ -149,9 +148,6 @@ class JSONParser:
             if foreign_keys and foreign_key_data:
                 for i, foreign_key in enumerate(foreign_keys):
                     table_data[table_name][table_size - 1][foreign_key] = foreign_key_data[i]
-            if isinstance(data[column], Enum):
-                obj: Enum = data[column]
-                data[column] = obj.name
             table_data[table_name][table_size - 1][column] = data[column]
 
         def _flatten_simple_dict(data: Dict,

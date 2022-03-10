@@ -1,13 +1,13 @@
 {
   "Accounts": {
     "parent_table": {
-      "accounts": "account.csv"
+      "Accounts": "Accounts.csv"
     },
     "table_primary_keys": {
-      "accounts": {
-        "accounts.account_id": "account_id"
+      "Accounts": {
+        "Accounts.AccountID": "AccountID"
       }
     },
-    "root_node": "accounts"
+    "root_node": "Accounts"
   }
 }

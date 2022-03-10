@@ -4,6 +4,7 @@ import dateparser
 import importlib.resources
 import csv
 import os
+import itertools
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
@@ -58,21 +59,17 @@ class Component(ComponentBase):
 
     def download_accounts(self, endpoint_def, modified_since=None):
         parser = JSONParser(**endpoint_def)
-        table_name = endpoint_def["parent_table"]["accounts"]
+        table_name = endpoint_def["parent_table"]["Accounts"]
         primary_key = [
-            value for value in endpoint_def["table_primary_keys"]["accounts"].values()]
-        all_accounts_list: list[dict] = []
-        for tenant_id, accounts_dict in self.client.get_accounts(modified_since):
-            all_accounts_list.extend(
-                parser.parse_data(accounts_dict)[table_name])
+            value for value in endpoint_def["table_primary_keys"]["Accounts"].values()]
 
         table_path = os.path.join(self.tables_out_path, table_name)
-        # os.makedirs(table_path, exist_ok=True)
-        field_names = list(all_accounts_list[0].keys())
         with open(table_path, 'w') as f:
-            writer = csv.DictWriter(f, fieldnames=field_names)
+            writer = csv.DictWriter(
+                f, fieldnames=self.client.get_account_field_names())
             writer.writeheader()
-            writer.writerows(all_accounts_list)
+            for _, tenant_accounts in self.client.get_accounts(modified_since):
+                writer.writerows(tenant_accounts)
         table_def = self.create_out_table_definition(table_name,
                                                      # destination=f"{self.out_bucket}.{self.table_name}",
                                                      primary_key=primary_key,
