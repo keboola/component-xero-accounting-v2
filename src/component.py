@@ -4,7 +4,6 @@ import dateparser
 import importlib.resources
 import csv
 import os
-import itertools
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
@@ -15,6 +14,7 @@ from xero import XeroClient
 # configuration variables
 KEY_MODIFIED_SINCE = 'modified_since'
 KEY_ENDPOINTS = 'endpoints'
+KEY_TENANT_ID = 'tenant_id'
 
 KEY_STATE_OAUTH_TOKEN_DICT = "#oauth_token_dict"
 
@@ -37,6 +37,7 @@ class Component(ComponentBase):
         modified_since = dateparser.parse(
             params.get(KEY_MODIFIED_SINCE)).isoformat()
         endpoints = params.get(KEY_ENDPOINTS)
+        tenant_id = params.get(KEY_TENANT_ID)
 
         oauth_credentials = self.configuration.oauth_credentials
 
@@ -45,7 +46,7 @@ class Component(ComponentBase):
         if oauth_token_dict and oauth_token_dict['expires_at'] > oauth_credentials.data['expires_at']:
             oauth_credentials.data = oauth_token_dict
 
-        self.client = XeroClient(oauth_credentials)
+        self.client = XeroClient(oauth_credentials, tenant_id=tenant_id)
         self.client.force_refresh_token()
 
         self.write_state_file(
@@ -66,22 +67,19 @@ class Component(ComponentBase):
         table_def = self.create_out_table_definition(table_name,
                                                      # destination=f"{self.out_bucket}.{self.table_name}",
                                                      primary_key=primary_key,
-                                                     columns=field_names,
-                                                     is_sliced=True,
+                                                     #  columns=field_names,
+                                                     is_sliced=False,
                                                      #  incremental=self.incremental_flag
                                                      )
         self.write_manifest(table_def)
 
-        for tenant_id, tenant_accounts_dict in self.client.get_accounts(modified_since):
-            for table_name, list_of_rows in parser.parse_data(tenant_accounts_dict).items():
-                os.makedirs(os.path.join(self.tables_out_path,
-                            table_name), exist_ok=True)
-                table_slice_path = os.path.join(
-                    self.tables_out_path, table_name, tenant_id)
-                with open(table_slice_path, 'w') as f:
-                    writer = csv.DictWriter(
-                        f, fieldnames=field_names)
-                    writer.writerows(list_of_rows)
+        tenant_accounts_dict = self.client.get_accounts(modified_since)
+        for table_name, list_of_rows in parser.parse_data(tenant_accounts_dict).items():
+            table_path = os.path.join(self.tables_out_path, table_name)
+            with open(table_path, 'w') as f:
+                writer = csv.DictWriter(f, fieldnames=field_names)
+                writer.writeheader()
+                writer.writerows(list_of_rows)
 
     @staticmethod
     def get_endpoint_definitions():

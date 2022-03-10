@@ -1,6 +1,9 @@
+import logging
 from typing import Dict, Iterable, List, Tuple
 
 from keboola.component.dao import OauthCredentials
+from keboola.component.exceptions import UserException
+
 from xero_python.identity import IdentityApi
 from xero_python.accounting import AccountingApi
 from xero_python.api_client import ApiClient, serialize
@@ -14,7 +17,7 @@ class XeroClientException(Exception):
 
 
 class XeroClient:
-    def __init__(self, oauth_credentials: OauthCredentials) -> None:
+    def __init__(self, oauth_credentials: OauthCredentials, tenant_id: str = None) -> None:
         self._oauth_token_dict = oauth_credentials.data
         oauth2_token_obj = OAuth2Token(client_id=oauth_credentials.appKey,
                                        client_secret=oauth_credentials.appSecret)
@@ -22,6 +25,15 @@ class XeroClient:
         self._api_client = ApiClient(Configuration(oauth2_token=oauth2_token_obj),
                                      oauth2_token_getter=self.get_xero_oauth2_token_dict,
                                      oauth2_token_saver=self._set_xero_oauth2_token_dict)
+        self.tenant_id = tenant_id
+        tenants_available = self._get_tenants()
+        if tenant_id is None:
+            self.tenant_id = tenants_available[0]
+            logging.warning(f'Tenant ID not specified, using first available: {self.tenant_id}.')
+        else:
+            if self.tenant_id not in tenants_available:
+                raise UserException(f"Specified Tenant ID ({self.tenant_id}) is not accessible,"
+                                          " please, check if you granted sufficient credentials.")
 
     def get_xero_oauth2_token_dict(self) -> Dict:
         return self._oauth_token_dict
@@ -44,12 +56,12 @@ class XeroClient:
     @staticmethod
     def get_account_field_names() -> List[str]:
         return list(xero_models.Account.attribute_map.values())
-    
+
     def get_accounts(self, modified_since: str = None, **kwargs) -> Iterable[Tuple[str, Dict]]:
         accounting_api = AccountingApi(self._api_client)
         tenant_ids = self._get_tenants()
-        for tenant_id in tenant_ids:
-            tenant_accounts: xero_models.Accounts = accounting_api.get_accounts(
-                tenant_id, modified_since, **kwargs)
-            accounts_dict = serialize(tenant_accounts)
-            yield (tenant_id, accounts_dict)
+        # for tenant_id in tenant_ids:
+        tenant_accounts: xero_models.Accounts = accounting_api.get_accounts(
+            self.tenant_id, modified_since, **kwargs)
+        accounts_dict = serialize(tenant_accounts)
+        return accounts_dict
