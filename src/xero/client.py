@@ -45,11 +45,11 @@ class XeroClient:
     def get_account_field_names() -> List[str]:
         return list(xero_models.Account.attribute_map.values())
     
-    def get_accounts(self, modified_since: str = None, **kwargs) -> Iterable[Tuple[str, List]]:
+    def get_accounts(self, modified_since: str = None, **kwargs) -> Iterable[Tuple[str, Dict]]:
         accounting_api = AccountingApi(self._api_client)
         tenant_ids = self._get_tenants()
         for tenant_id in tenant_ids:
             tenant_accounts: xero_models.Accounts = accounting_api.get_accounts(
                 tenant_id, modified_since, **kwargs)
-            accounts_list = serialize(tenant_accounts)['Accounts']
-            yield (tenant_id, accounts_list)
+            accounts_dict = serialize(tenant_accounts)
+            yield (tenant_id, accounts_dict)

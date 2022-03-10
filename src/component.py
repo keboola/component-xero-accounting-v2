@@ -60,24 +60,28 @@ class Component(ComponentBase):
     def download_accounts(self, endpoint_def, modified_since=None):
         parser = JSONParser(**endpoint_def)
         table_name = endpoint_def["parent_table"]["Accounts"]
+        field_names = self.client.get_account_field_names()
         primary_key = [
             value for value in endpoint_def["table_primary_keys"]["Accounts"].values()]
-
-        table_path = os.path.join(self.tables_out_path, table_name)
-        with open(table_path, 'w') as f:
-            writer = csv.DictWriter(
-                f, fieldnames=self.client.get_account_field_names())
-            writer.writeheader()
-            for _, tenant_accounts in self.client.get_accounts(modified_since):
-                writer.writerows(tenant_accounts)
         table_def = self.create_out_table_definition(table_name,
                                                      # destination=f"{self.out_bucket}.{self.table_name}",
                                                      primary_key=primary_key,
-                                                     #  columns=field_names,
-                                                     is_sliced=False,
+                                                     columns=field_names,
+                                                     is_sliced=True,
                                                      #  incremental=self.incremental_flag
                                                      )
         self.write_manifest(table_def)
+
+        for tenant_id, tenant_accounts_dict in self.client.get_accounts(modified_since):
+            for table_name, list_of_rows in parser.parse_data(tenant_accounts_dict).items():
+                os.makedirs(os.path.join(self.tables_out_path,
+                            table_name), exist_ok=True)
+                table_slice_path = os.path.join(
+                    self.tables_out_path, table_name, tenant_id)
+                with open(table_slice_path, 'w') as f:
+                    writer = csv.DictWriter(
+                        f, fieldnames=field_names)
+                    writer.writerows(list_of_rows)
 
     @staticmethod
     def get_endpoint_definitions():
