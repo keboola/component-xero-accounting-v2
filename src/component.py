@@ -5,6 +5,8 @@ import importlib.resources
 import csv
 import os
 
+import inflection
+
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 from parser.json_parser import JSONParser
@@ -56,14 +58,16 @@ class Component(ComponentBase):
             logging.info(f"Fetching data for endpoint : {endpoint}")
             endpoint_def = endpoint_definitions[endpoint]
             if endpoint == 'Accounts':
-                self.download_accounts(endpoint_def, modified_since)
+                parser = JSONParser(**endpoint_def)
+                self.download_accounts(parser, modified_since)
 
-    def download_accounts(self, endpoint_def, modified_since=None):
-        parser = JSONParser(**endpoint_def)
-        table_name = endpoint_def["parent_table"]["Accounts"]
-        field_names = self.client.get_account_field_names()
+    def download_accounts(self, parser: JSONParser, modified_since: str = None):
+        model_name = parser.root_node
+        table_name = parser.parent_table[model_name]
+        field_names = self.client.get_field_names(
+            inflection.singularize(model_name))  # Leaving out the 's' at the end
         primary_key = [
-            value for value in endpoint_def["table_primary_keys"]["Accounts"].values()]
+            value for value in parser.table_primary_keys[model_name].values()]
         table_def = self.create_out_table_definition(table_name,
                                                      # destination=f"{self.out_bucket}.{self.table_name}",
                                                      primary_key=primary_key,
@@ -73,8 +77,9 @@ class Component(ComponentBase):
                                                      )
         self.write_manifest(table_def)
 
-        tenant_accounts_dict = self.client.get_accounts(modified_since)
-        for table_name, list_of_rows in parser.parse_data(tenant_accounts_dict).items():
+        accounts_dict = self.client.get_serialized_accounting_object(
+            model_name, if_modified_since=modified_since)
+        for table_name, list_of_rows in parser.parse_data(accounts_dict).items():
             table_path = os.path.join(self.tables_out_path, table_name)
             with open(table_path, 'w') as f:
                 writer = csv.DictWriter(f, fieldnames=field_names)

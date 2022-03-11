@@ -1,6 +1,8 @@
 import logging
 from typing import Dict, Iterable, List, Tuple
 
+import inflection
+
 from keboola.component.dao import OauthCredentials
 from keboola.component.exceptions import UserException
 
@@ -9,11 +11,21 @@ from xero_python.accounting import AccountingApi
 from xero_python.api_client import ApiClient, serialize
 from xero_python.api_client.configuration import Configuration
 from xero_python.api_client.oauth2 import OAuth2Token
-import xero_python.accounting.models as xero_models
+import xero_python.accounting.models
+from xero_python.models import BaseModel
 
 
 class XeroClientException(Exception):
     pass
+
+
+def _get_accounting_model(model_name: str) -> BaseModel:
+    try:
+        model: BaseModel = getattr(xero_python.accounting.models, model_name)
+    except Exception as e:
+        raise XeroClientException(
+            f"Requested model ({model_name}) not found.") from e
+    return model
 
 
 class XeroClient:
@@ -55,12 +67,16 @@ class XeroClient:
         self._api_client.refresh_oauth2_token()
 
     @staticmethod
-    def get_account_field_names() -> List[str]:
-        return list(xero_models.Account.attribute_map.values())
+    def get_field_names(model_name: str) -> List[str]:
+        return list(_get_accounting_model(model_name).attribute_map.values())
 
-    def get_accounts(self, modified_since: str = None, **kwargs) -> Dict:
+    def get_serialized_accounting_object(self, model_name: str, **kwargs) -> Dict:
         accounting_api = AccountingApi(self._api_client)
-        tenant_accounts: xero_models.Accounts = accounting_api.get_accounts(
-            self.tenant_id, modified_since, **kwargs)
-        accounts_dict = serialize(tenant_accounts)
-        return accounts_dict
+        try:
+            data_getter = getattr(
+                accounting_api, f'get_{inflection.underscore(model_name)}')
+        except Exception as e:
+            raise XeroClientException(
+                f"Requested model ({model_name}) not found.") from e
+        data_dict = serialize(data_getter(self.tenant_id, **kwargs))
+        return data_dict
