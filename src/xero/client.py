@@ -58,7 +58,7 @@ class XeroClient:
     def get_account_field_names() -> List[str]:
         return list(xero_models.Account.attribute_map.values())
 
-    def get_accounts(self, modified_since: str = None, **kwargs) -> Iterable[Tuple[str, Dict]]:
+    def get_accounts(self, modified_since: str = None, **kwargs) -> Dict:
         accounting_api = AccountingApi(self._api_client)
         tenant_accounts: xero_models.Accounts = accounting_api.get_accounts(
             self.tenant_id, modified_since, **kwargs)
