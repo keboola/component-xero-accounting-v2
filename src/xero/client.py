@@ -29,11 +29,12 @@ class XeroClient:
         tenants_available = self._get_tenants()
         if tenant_id is None:
             self.tenant_id = tenants_available[0]
-            logging.warning(f'Tenant ID not specified, using first available: {self.tenant_id}.')
+            logging.warning(
+                f'Tenant ID not specified, using first available: {self.tenant_id}.')
         else:
             if self.tenant_id not in tenants_available:
                 raise UserException(f"Specified Tenant ID ({self.tenant_id}) is not accessible,"
-                                          " please, check if you granted sufficient credentials.")
+                                    " please, check if you granted sufficient credentials.")
 
     def get_xero_oauth2_token_dict(self) -> Dict:
         return self._oauth_token_dict
@@ -59,8 +60,6 @@ class XeroClient:
 
     def get_accounts(self, modified_since: str = None, **kwargs) -> Iterable[Tuple[str, Dict]]:
         accounting_api = AccountingApi(self._api_client)
-        tenant_ids = self._get_tenants()
-        # for tenant_id in tenant_ids:
         tenant_accounts: xero_models.Accounts = accounting_api.get_accounts(
             self.tenant_id, modified_since, **kwargs)
         accounts_dict = serialize(tenant_accounts)
