@@ -9,5 +9,16 @@
       }
     },
     "root_node": "Accounts"
+  },
+  "Quotes": {
+    "parent_table": {
+      "Quotes": "Quotes.csv"
+    },
+    "table_primary_keys": {
+      "Quotes": {
+        "Quotes.QuoteID": "QuoteID"
+      }
+    },
+    "root_node": "Quotes"
   }
 }

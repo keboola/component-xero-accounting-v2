@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List
 
 import inflection
 
@@ -71,6 +71,7 @@ class XeroClient:
         return list(_get_accounting_model(model_name).attribute_map.values())
 
     def get_serialized_accounting_object(self, model_name: str, **kwargs) -> Dict:
+        # TODO: handle paging where needed - some endpoints require paging, e. g. Quotes
         accounting_api = AccountingApi(self._api_client)
         try:
             data_getter = getattr(

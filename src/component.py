@@ -1,10 +1,11 @@
 import json
 import logging
-import dateparser
 import importlib.resources
 import csv
 import os
+import itertools
 
+import dateparser
 import inflection
 
 from keboola.component.base import ComponentBase
@@ -57,9 +58,11 @@ class Component(ComponentBase):
         for endpoint in endpoints:
             logging.info(f"Fetching data for endpoint : {endpoint}")
             endpoint_def = endpoint_definitions[endpoint]
+            parser = JSONParser(**endpoint_def)
             if endpoint == 'Accounts':
-                parser = JSONParser(**endpoint_def)
                 self.download_accounts(parser, modified_since)
+            elif endpoint == 'Quotes':
+                self.download_quotes(parser)
 
     def download_accounts(self, parser: JSONParser, modified_since: str = None):
         model_name = parser.root_node
@@ -80,6 +83,30 @@ class Component(ComponentBase):
         accounts_dict = self.client.get_serialized_accounting_object(
             model_name, if_modified_since=modified_since)
         for table_name, list_of_rows in parser.parse_data(accounts_dict).items():
+            table_path = os.path.join(self.tables_out_path, table_name)
+            with open(table_path, 'w') as f:
+                writer = csv.DictWriter(f, fieldnames=field_names)
+                writer.writeheader()
+                writer.writerows(list_of_rows)
+
+    def download_quotes(self, parser: JSONParser):
+        model_name = parser.root_node
+        quotes_dict = self.client.get_serialized_accounting_object(
+            model_name)
+        for table_name, list_of_rows in parser.parse_data(quotes_dict).items():
+            table_name: str
+            field_names = sorted(
+                set(itertools.chain.from_iterable(row.keys() for row in list_of_rows)))
+            primary_key = [
+                value for value in parser.table_primary_keys[table_name.replace('.csv', '')].values()]
+            table_def = self.create_out_table_definition(table_name,
+                                                         # destination=f"{self.out_bucket}.{self.table_name}",
+                                                         primary_key=primary_key,
+                                                         #  columns=field_names,
+                                                         is_sliced=False,
+                                                         #  incremental=self.incremental_flag
+                                                         )
+            self.write_manifest(table_def)
             table_path = os.path.join(self.tables_out_path, table_name)
             with open(table_path, 'w') as f:
                 writer = csv.DictWriter(f, fieldnames=field_names)
