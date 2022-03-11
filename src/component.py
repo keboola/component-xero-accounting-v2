@@ -6,7 +6,6 @@ import os
 import itertools
 
 import dateparser
-import inflection
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
@@ -68,7 +67,7 @@ class Component(ComponentBase):
         model_name = parser.root_node
         table_name = parser.parent_table[model_name]
         field_names = self.client.get_field_names(
-            inflection.singularize(model_name))  # Leaving out the 's' at the end
+            model_name[:-1])  # Leaving out the 's' at the end
         primary_key = [
             value for value in parser.table_primary_keys[model_name].values()]
         table_def = self.create_out_table_definition(table_name,

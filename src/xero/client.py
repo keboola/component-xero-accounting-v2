@@ -1,8 +1,6 @@
 import logging
 from typing import Dict, List
 
-import inflection
-
 from keboola.component.dao import OauthCredentials
 from keboola.component.exceptions import UserException
 
@@ -73,9 +71,11 @@ class XeroClient:
     def get_serialized_accounting_object(self, model_name: str, **kwargs) -> Dict:
         # TODO: handle paging where needed - some endpoints require paging, e. g. Quotes
         accounting_api = AccountingApi(self._api_client)
+        model: BaseModel = _get_accounting_model(model_name)
+        inv_map = {v: k for k, v in model.attribute_map.items()}
         try:
             data_getter = getattr(
-                accounting_api, f'get_{inflection.underscore(model_name)}')
+                accounting_api, f'get_{inv_map[model_name]}')
         except Exception as e:
             raise XeroClientException(
                 f"Requested model ({model_name}) not found.") from e

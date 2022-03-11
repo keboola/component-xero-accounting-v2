@@ -5,4 +5,3 @@ mock
 freezegun
 xero-python==1.13.0
 dateparser
-inflection
