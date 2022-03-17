@@ -1,7 +1,4 @@
 import logging
-import csv
-import os
-import itertools
 import dateparser
 import tempfile
 
@@ -10,7 +7,7 @@ from typing import Dict
 from csv_tools import CachedOrthogonalDictWriter
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
-from parser import JSONParser, EndpointDefinition
+from json_parser import JSONParser, EndpointDefinition
 
 from xero import XeroClient
 
@@ -74,7 +71,7 @@ class Component(ComponentBase):
             if endpoint == 'Accounts':
                 self.download_accounts(parser, modified_since=modified_since, fieldnames=fieldnames)
             elif endpoint == 'Quotes':
-                self.download_quotes(parser)
+                self.download_quotes(parser, fieldnames)
 
         # important to update the table columns to the same values as the final columns of the Orthogonal Writer
         self.update_table_definitions()
@@ -113,29 +110,12 @@ class Component(ComponentBase):
         parsed_data = parser.parse_data(accounts_dict)
         self.save_parsed_data(parsed_data, fieldnames)
 
-    def download_quotes(self, parser: JSONParser):
+    def download_quotes(self, parser: JSONParser, fieldnames):
         model_name = parser.root_node
         quotes_dict = self.client.get_serialized_accounting_object(
             model_name)
-        for table_name, list_of_rows in parser.parse_data(quotes_dict).items():
-            table_name: str
-            field_names = sorted(
-                set(itertools.chain.from_iterable(row.keys() for row in list_of_rows)))
-            primary_key = [
-                value for value in parser.table_primary_keys[table_name.replace('.csv', '')].values()]
-            table_def = self.create_out_table_definition(table_name,
-                                                         # destination=f"{self.out_bucket}.{self.table_name}",
-                                                         primary_key=primary_key,
-                                                         #  columns=field_names,
-                                                         is_sliced=False,
-                                                         #  incremental=self.incremental_flag
-                                                         )
-            self.write_manifest(table_def)
-            table_path = os.path.join(self.tables_out_path, table_name)
-            with open(table_path, 'w') as f:
-                writer = csv.DictWriter(f, fieldnames=field_names)
-                writer.writeheader()
-                writer.writerows(list_of_rows)
+        parsed_data = parser.parse_data(quotes_dict)
+        self.save_parsed_data(parsed_data, fieldnames)
 
     def save_parsed_data(self, parsed_data, fieldnames):
         for data_name in parsed_data:
