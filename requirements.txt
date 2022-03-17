@@ -5,3 +5,4 @@ mock
 freezegun
 xero-python==1.13.0
 dateparser
+regex==2022.03.02

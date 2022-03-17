@@ -1,7 +1,9 @@
 import logging
 from typing import List, Dict
-from typing import Tuple
 from typing import Optional
+
+from .table_key import Key
+from .endpoint_definition import EndpointDefinition
 
 
 class JSONParserError(Exception):
@@ -9,11 +11,7 @@ class JSONParserError(Exception):
 
 
 class JSONParser:
-    def __init__(self,
-                 parent_table: Dict[str, str],
-                 table_primary_keys: Dict[str, Dict[str, str]] = None,
-                 child_table_definitions: Dict[str, str] = None,
-                 root_node: str = "") -> None:
+    def __init__(self, endpoint_definition: EndpointDefinition) -> None:
 
         """
         Class for parsing JSON data. An input JSON is transformed into 1 or multiple lists of dictionaries of depth 1.
@@ -37,18 +35,9 @@ class JSONParser:
         Raises:
             JSONParserError - on parsing errors.
         """
-        self.parent_table = parent_table
-        self.child_table_definitions = child_table_definitions
-        if not child_table_definitions:
-            self.child_table_definitions = {}
-        self.table_primary_keys = table_primary_keys
-        if not table_primary_keys:
-            self.table_primary_keys = {}
-        self.root_node = root_node
-
-        self.all_tables = parent_table
-        if child_table_definitions:
-            self.all_tables = {**parent_table, **child_table_definitions}
+        self.endpoint_definition = endpoint_definition
+        if not endpoint_definition.child_table_definitions:
+            self.endpoint_definition.child_table_definitions = {}
 
     def parse_data(self, data: Dict) -> Dict:
         """
@@ -62,122 +51,127 @@ class JSONParser:
             values are lists of flat dictionaries.
 
         """
-        data_to_parse = data
-        if isinstance(data, Dict):
-            data_to_parse = self._get_data_to_parse(data, self.root_node)
+        data_to_parse = self._get_data_to_parse(data, self.endpoint_definition.root_node)
         parsed_data = {}
         for row in data_to_parse:
             parsed_row = self._parse_row_to_tables(row)
-            for key in parsed_row:
-                if key not in parsed_data:
-                    parsed_data[key] = []
-                parsed_data[key].extend(parsed_row[key])
+            for table_name in parsed_row:
+                if table_name not in parsed_data:
+                    parsed_data[table_name] = []
+                parsed_data[table_name].extend(parsed_row[table_name])
         return parsed_data
 
-    def _parse_row_to_tables(self, data_object: Dict) -> Dict:
+    @property
+    def root_node(self):
+        return self.endpoint_definition.root_node
+
+    @property
+    def table_primary_keys(self):
+        return self.endpoint_definition.table_primary_keys
+
+    def _initialize_tables(self) -> Dict[str, List]:
         table_data = {}
+        for table in self.endpoint_definition.parent_table:
+            table_data[self.endpoint_definition.parent_table[table]] = []
+        for table in self.endpoint_definition.child_table_definitions:
+            table_data[self.endpoint_definition.child_table_definitions[table]] = []
+        return table_data
+
+    def _parse_row_to_tables(self, data_object: Dict) -> Dict:
+        table_data = self._initialize_tables()
         warnings = {}
 
-        for table in self.parent_table:
-            table_data[self.parent_table[table]] = []
-
-        for table in self.child_table_definitions:
-            table_data[self.child_table_definitions[table]] = []
-
-        def _parse_list_of_dicts(column: str,
-                                 data: Dict,
-                                 primary_keys: List[str],
-                                 primary_key_data: List[str],
-                                 object_name: str) -> None:
-
-            for index, d in enumerate(data[column]):
-                _parse_nested_dict(d, object_name, foreign_key_data=primary_key_data, foreign_keys=primary_keys,
-                                   table_index=index)
-
-        def _get_primary_key_values(data: Dict, parent_object: str) -> Tuple[List[str], List[str]]:
-            primary_keys = list(self.table_primary_keys[parent_object].keys())
-            available_primary_keys = []
-            key_prefix = "".join([parent_object, "."])
-            primary_key_data = []
-            for primary_key in primary_keys:
-                if primary_key.replace(key_prefix, "") in data:
-                    primary_key_data.append(data[primary_key.replace(key_prefix, "")])
-                    available_primary_keys.append(self.table_primary_keys[parent_object][primary_key])
-            return available_primary_keys, primary_key_data
+        def _parse_list_of_dicts(data: List[Dict], primary_keys: List[Key], object_name: str) -> None:
+            for index, datum in enumerate(data):
+                _parse_nested_dict(datum, object_name, foreign_keys=primary_keys, table_index=index)
 
         def _parse_nested_dict(data: Dict,
                                parent_object: str = "",
                                table_index: int = 0,
-                               foreign_keys: Optional[List[str]] = None,
-                               foreign_key_data: Optional[List[str]] = None) -> None:
+                               foreign_keys: Optional[List[Key]] = None,
+                               parent_prefix: str = "") -> None:
 
-            if not foreign_keys or not foreign_key_data:
-                foreign_key_data = []
+            if not foreign_keys:
                 foreign_keys = []
-            primary_keys, primary_key_data = _get_primary_key_values(data, parent_object)
 
             for index, column in enumerate(data):
-                if self._is_object_child_table(parent_object, column):
-                    object_name = column
-                    if parent_object:
-                        object_name = ".".join([parent_object, column])
-                    if not isinstance(data[column], List):
-                        data[column] = [data[column]]
-                    primary_keys.extend(foreign_keys)
-                    primary_key_data.extend(foreign_key_data)
-                    _parse_list_of_dicts(column, data, primary_keys, primary_key_data, object_name)
-                elif isinstance(data[column], Dict):
-                    table_name = self.all_tables[parent_object]
-                    _flatten_simple_dict(data[column], table_name, table_index, column, foreign_keys, foreign_key_data)
-                elif self._is_list_of_dicts(data[column]):
-                    warnings[column] = f'Warning : Possible table "{column}" will be ignored as it is not specified ' \
-                                       "in the configuration of the parser."
-                else:
-                    _parse_object(parent_object, column, data, index, foreign_keys, foreign_key_data)
+                _parse_column(data, parent_object, table_index, foreign_keys, parent_prefix, column)
+
+        def _parse_column(data: Dict,
+                          parent_object: str,
+                          table_index: int,
+                          foreign_keys: Optional[List[Key]],
+                          parent_prefix: str,
+                          column: str) -> None:
+            if self._is_object_child_table(parent_object, column):
+                _process_child_table(data, parent_object, foreign_keys, column)
+            elif self._is_object_dict(data[column]):
+                new_parent_prefix = self.get_joined_name(parent_prefix, column)
+                primary_keys = self._get_primary_keys(data, parent_object, parent_object)
+                _parse_nested_dict(data[column],
+                                   parent_object,
+                                   table_index,
+                                   foreign_keys=primary_keys,
+                                   parent_prefix=new_parent_prefix)
+            elif self._is_list_of_dicts(data[column]):
+                warnings[column] = f'Warning : Possible table "{column}" will be ignored as it is not specified ' \
+                                   f"in the configuration of the parser. Table parent object : '{parent_object}'" \
+                                   f"Sample data : {data[column]}"
+            else:
+                _parse_object(parent_object, parent_prefix, column, data, table_index, foreign_keys)
+
+        def _process_child_table(data: Dict,
+                                 parent_object: str,
+                                 foreign_keys: Optional[List[Key]],
+                                 column: str) -> None:
+            object_name = self.get_joined_name(parent_object, column, ".")
+            if not isinstance(data[column], List):
+                data[column] = [data[column]]
+            for foreign_key in foreign_keys:
+                foreign_key.name = self.endpoint_definition.get_table_primary_key_name(object_name,
+                                                                                       foreign_key.object_name)
+            primary_keys = self._get_primary_keys(data, parent_object, object_name)
+            primary_keys.extend(foreign_keys)
+            _parse_list_of_dicts(data[column], primary_keys, object_name)
 
         def _parse_object(parent_object: str,
-                          column: str, data: Dict,
-                          index: int, foreign_keys: List[str],
-                          foreign_key_data: List[str]) -> None:
+                          parent_prefix: str,
+                          column: str,
+                          data: Dict,
+                          table_index: int,
+                          foreign_keys: List[Key]) -> None:
 
-            table_name = self.all_tables[parent_object]
+            table_name = self.endpoint_definition.all_tables[parent_object]
 
-            if index == 0:
+            if len(table_data[table_name]) <= table_index:
                 table_data[table_name].append({})
+
+            _add_foreign_keys_to_table(table_name, foreign_keys)
+            column_name = self.get_joined_name(parent_prefix, column, "_")
+            table_data[table_name][table_index][column_name] = data[column]
+
+        def _add_foreign_keys_to_table(table_name: str, foreign_keys: List[Key]):
             table_size = len(table_data[table_name])
-            if foreign_keys and foreign_key_data:
-                for i, foreign_key in enumerate(foreign_keys):
-                    table_data[table_name][table_size - 1][foreign_key] = foreign_key_data[i]
-            table_data[table_name][table_size - 1][column] = data[column]
+            for foreign_key in foreign_keys:
+                table_data[table_name][table_size - 1][foreign_key.name] = foreign_key.value
 
-        def _flatten_simple_dict(data: Dict,
-                                 table_name: str,
-                                 index: int,
-                                 parent_key: str,
-                                 foreign_keys: List[str],
-                                 foreign_key_data: List[str]) -> None:
-            for d_key in data:
-                new_key = parent_key + "_" + d_key
-                if len(table_data[table_name]) < index + 1:
-                    table_data[table_name].append({})
-                table_data[table_name][index][new_key] = data[d_key]
-
-            if foreign_keys and foreign_key_data:
-                for i, foreign_key in enumerate(foreign_keys):
-                    table_data[table_name][index][foreign_key] = foreign_key_data[i]
-
-        parent_table = list(self.parent_table.keys())[0]
+        parent_table = self.endpoint_definition.parent_table_name
         _parse_nested_dict(data_object, parent_table)
-        for warning in warnings:
-            logging.warning(warnings[warning])
+        self._log_warnings(warnings)
         return table_data
 
+    @staticmethod
+    def _log_warnings(warnings: Dict):
+        for warning in warnings:
+            logging.warning(warnings[warning])
+
     def _is_object_child_table(self, parent_object: str, object_name: str) -> bool:
-        if parent_object:
-            object_name = ".".join([parent_object, object_name])
-        if object_name in list(self.all_tables.keys()):
-            return True
-        return False
+        object_name = self.get_joined_name(parent_object, object_name, ".")
+        return self.endpoint_definition.is_child_table(object_name)
+
+    @staticmethod
+    def _is_object_dict(object_):
+        return isinstance(object_, Dict)
 
     @staticmethod
     def _is_list_of_dicts(object_) -> bool:
@@ -204,3 +198,23 @@ class JSONParser:
             raise JSONParserError(
                 "Invalid root node. Data extracted from JSON using the root node should be a list of dictionaries.")
         return data
+
+    @staticmethod
+    def get_joined_name(parent: str, child: str, delimiter="_") -> str:
+        joined_name = child
+        if parent:
+            joined_name = delimiter.join([parent, child])
+        return joined_name
+
+    def _get_primary_keys(self, data: Dict, parent_object: str, table_object) -> List[Key]:
+        primary_keys = []
+        primary_key_objects = self.endpoint_definition.get_table_primary_key_objects(parent_object)
+        key_prefix = "".join([parent_object, "."])
+        for object_name in primary_key_objects:
+            child_object = object_name.replace(key_prefix, "")
+            if child_object in data:
+                value = data[child_object]
+                name = self.endpoint_definition.get_table_primary_key_name(table_object, object_name)
+                new_key = Key(object_name, name, value)
+                primary_keys.append(new_key)
+        return primary_keys

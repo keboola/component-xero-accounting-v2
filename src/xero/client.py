@@ -12,6 +12,8 @@ from xero_python.api_client.oauth2 import OAuth2Token
 import xero_python.accounting.models
 from xero_python.models import BaseModel
 
+from xero_python.exceptions.http_status_exceptions import OAuth2InvalidGrantError, HTTPStatusException
+
 
 class XeroClientException(Exception):
     pass
@@ -20,6 +22,7 @@ class XeroClientException(Exception):
 def _get_accounting_model(model_name: str) -> BaseModel:
     try:
         model: BaseModel = getattr(xero_python.accounting.models, model_name)
+        # TODO do not use Exception, exactly specify which exception
     except Exception as e:
         raise XeroClientException(
             f"Requested model ({model_name}) not found.") from e
@@ -29,15 +32,19 @@ def _get_accounting_model(model_name: str) -> BaseModel:
 class XeroClient:
     def __init__(self, oauth_credentials: OauthCredentials, tenant_id: str = None) -> None:
         self._oauth_token_dict = oauth_credentials.data
+        self.tenant_id = tenant_id
+
         oauth2_token_obj = OAuth2Token(client_id=oauth_credentials.appKey,
                                        client_secret=oauth_credentials.appSecret)
         oauth2_token_obj.update_token(**self._oauth_token_dict)
         self._api_client = ApiClient(Configuration(oauth2_token=oauth2_token_obj),
                                      oauth2_token_getter=self.get_xero_oauth2_token_dict,
                                      oauth2_token_saver=self._set_xero_oauth2_token_dict)
-        self.tenant_id = tenant_id
+
+    def update_tenants(self):
         tenants_available = self._get_tenants()
-        if tenant_id is None:
+        if self.tenant_id is None:
+            # TODO the previous component took all tenants and fetched all data for each tenant
             self.tenant_id = tenants_available[0]
             logging.warning(
                 f'Tenant ID not specified, using first available: {self.tenant_id}.')
@@ -55,14 +62,22 @@ class XeroClient:
     def _get_tenants(self) -> List[str]:
         identity_api = IdentityApi(self._api_client)
         available_tenants = []
-        for connection in identity_api.get_connections():
-            tenant = serialize(connection)
-            available_tenants.append(tenant.get("tenantId"))
+
+        try:
+            for connection in identity_api.get_connections():
+                tenant = serialize(connection)
+                available_tenants.append(tenant.get("tenantId"))
+        except OAuth2InvalidGrantError as oauth_err:
+            raise XeroClientException(oauth_err) from oauth_err
 
         return available_tenants
 
     def force_refresh_token(self):
-        self._api_client.refresh_oauth2_token()
+        try:
+            self._api_client.refresh_oauth2_token()
+        except HTTPStatusException as http_error:
+            raise XeroClientException(
+                "Failed to authenticate the client, please reauthorize the component") from http_error
 
     @staticmethod
     def get_field_names(model_name: str) -> List[str]:
