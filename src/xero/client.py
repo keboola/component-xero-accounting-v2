@@ -3,8 +3,9 @@ import logging
 from typing import Dict, MutableSet, List, Tuple, Union
 from enum import Enum
 
-from keboola.component.dao import OauthCredentials
+from keboola.component.dao import OauthCredentials, SupportedDataTypes, TableMetadata, TableDefinition
 from keboola.component.exceptions import UserException
+from keboola.component import ComponentBase
 
 from xero_python.identity import IdentityApi
 from xero_python.accounting import AccountingApi
@@ -33,10 +34,12 @@ def _get_accounting_model(model_name: str) -> Union[BaseModel, None]:
 
 @dataclass
 class Table:
-    table_name: str
-    primary_key: MutableSet[str]
-    field_types: Dict[str, str]
-    data: List
+    # table_name: str
+    # primary_key: MutableSet[str]
+    # field_types: Dict[str, SupportedDataTypes]
+    data: List[Dict]
+    # table_metadata: TableMetadata
+    table_definition: TableDefinition
 
     # def __eq__(self, other):
     #     return other and self.table_name == other.table_name and self.primary_key == other.primary_key
@@ -50,9 +53,10 @@ class Table:
 
 
 class XeroClient:
-    def __init__(self, oauth_credentials: OauthCredentials, tenant_id: str = None) -> None:
+    def __init__(self, oauth_credentials: OauthCredentials, tenant_id: str = None, component: ComponentBase = None) -> None:
         self._oauth_token_dict = oauth_credentials.data
         self.tenant_id = tenant_id
+        self.component = component
 
         oauth2_token_obj = OAuth2Token(client_id=oauth_credentials.appKey,
                                        client_secret=oauth_credentials.appSecret)
@@ -122,7 +126,10 @@ class XeroClient:
         return data_getter(self.tenant_id, **kwargs)
     
     def parse_accounting_object_into_tables(self, root_object: BaseModel, **kwargs) -> List[Table]:
-        TERMINAL_TYPE_NAMES = frozenset(('str', 'int', 'float', 'bool'))
+        TERMINAL_TYPE_MAPPING = {'str': {'type': SupportedDataTypes.STRING},
+                                 'int': {'type': SupportedDataTypes.INTEGER},
+                                 'float': {'type': SupportedDataTypes.NUMERIC, 'length': '38,8'},
+                                 'bool': {'type': SupportedDataTypes.BOOLEAN}}
         tables: Dict[str, Table] = {}
         def parse_object(object: BaseModel, parent_object: BaseModel = None) -> Tuple[str, str]:
             class_name = object.__class__.__name__
@@ -139,7 +146,7 @@ class XeroClient:
             field_types = {}
             for attr_name in object.attribute_map:
                 type_name: str = object.openapi_types[attr_name] 
-                if type_name in TERMINAL_TYPE_NAMES:
+                if type_name in TERMINAL_TYPE_MAPPING:
                     field_types[object.attribute_map[attr_name]] = object.openapi_types[attr_name]
                 elif type_name.startswith('list'):
                     pass
@@ -174,13 +181,26 @@ class XeroClient:
                     record[field_name] = serialize(attribute_value)
                     # field_types[field_name] = object.openapi_types[attribute_name]
             if len(record) > 0:
-                if tables.get(class_name):
-                    table = tables[class_name]
-                else:
-                    table = Table(table_name=class_name,
-                                  primary_key=primary_key,
-                                  field_types=field_types,
-                                  data=[])
+                table = tables.get(class_name)
+                # if tables.get(class_name):
+                #     table = tables[class_name]
+                if table is None:
+                    # table = Table(table_name=class_name,
+                    #               primary_key=primary_key,
+                    #               field_types=field_types,
+                    #               data=[],
+                    #               table_metadata=TableMetadata())
+                    table_definiton = self.component.create_out_table_definition(name=f'{class_name}.csv',
+                                                                   primary_key=list(primary_key),
+                                                                   columns=list(field_types.keys()))
+                    table = Table(data=[],
+                                  table_definition=table_definiton)
+                    for _field_name, source_field_type in field_types.items():
+                        output_type = TERMINAL_TYPE_MAPPING[source_field_type]
+                        table.table_definition.table_metadata.add_column_data_type(column=_field_name,
+                                                                                   source_data_type=source_field_type,
+                                                                                   data_type=output_type['type'],
+                                                                                   length=output_type.get('length'))
                     tables[class_name] = table
                 table.data.append(record)
             return id
@@ -191,5 +211,5 @@ class XeroClient:
                 
         #     else:
         parse_object(root_object)
-        pass  # TODO: create tabledef object
+        pass
         return list(tables.values())

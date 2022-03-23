@@ -56,7 +56,7 @@ class Component(ComponentBase):
         if oauth_token_dict and oauth_token_dict['expires_at'] > oauth_credentials.data['expires_at']:
             oauth_credentials.data = oauth_token_dict
 
-        self.client = XeroClient(oauth_credentials, tenant_id=tenant_id)
+        self.client = XeroClient(oauth_credentials, tenant_id=tenant_id, component=self)
         self.client.force_refresh_token()
         self.client.update_tenants()
 
@@ -70,15 +70,17 @@ class Component(ComponentBase):
             accounting_object = self.client.get_accounting_object(endpoint)
             tables = self.client.parse_accounting_object_into_tables(accounting_object)
             for table in tables:
-                file_name = f'{table.table_name}.csv'
-                table_def = self.create_out_table_definition(name=file_name,
-                                                             primary_key=list(table.primary_key),
-                                                             columns=list(table.field_types.keys()))
-                # for field_name, field_type in table.field_types.items():  # TODO: finish handling data types - do it in client.py already
+                # file_name = f'{table.table_definition.name}.csv'
+                # table_def = self.create_out_table_definition(name=file_name,
+                #                                              primary_key=list(table.primary_key),
+                #                                              columns=list(table.field_types.keys()))
+                # for field_name, field_type in table.field_types.items():
                 #     table_def.table_metadata.add_column_data_type(field_name, field_type)
-                self.write_manifest(table_def)
-                with open(os.path.join(self.tables_out_path, file_name), 'w') as f:  # TODO: use UUID slices to avoid conflicts and for pagination
-                    csv_writer = csv.DictWriter(f, dialect='kbc', fieldnames=table.field_types.keys())
+                self.write_manifest(table.table_definition)
+                # base_path = os.path.join(self.tables_out_path, self.csv_filename)
+                # os.makedirs(base_path, exist_ok=True)
+                with open(os.path.join(self.tables_out_path, table.table_definition.name), 'w') as f:  # TODO: use UUID slices to avoid conflicts and for pagination
+                    csv_writer = csv.DictWriter(f, dialect='kbc', fieldnames=table.table_definition.columns)
                     csv_writer.writerows(table.data)
             # endpoint_definition = EndpointDefinition(ENDPOINT_DEFINITION_PATH, endpoint)
             # parser = JSONParser(endpoint_definition)
