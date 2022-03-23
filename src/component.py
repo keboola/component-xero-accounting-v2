@@ -58,6 +58,7 @@ class Component(ComponentBase):
         self.client.update_tenants()
 
         self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = self.client.get_xero_oauth2_token_dict()
+        self.write_state_file(self.new_state)
 
         endpoint_columns = state.get(KEY_STATE_ENDPOINT_COLUMNS) if state.get(KEY_STATE_ENDPOINT_COLUMNS) else {}
 
