@@ -1,6 +1,7 @@
 import logging
 import dateparser
 import tempfile
+import os
 
 from collections import OrderedDict
 from typing import Dict
@@ -24,7 +25,7 @@ KEY_STATE_ENDPOINT_COLUMNS = "endpoint_columns"
 REQUIRED_PARAMETERS = [KEY_ENDPOINTS]
 REQUIRED_IMAGE_PARS = []
 
-ENDPOINT_DEFINITION_PATH = "endpoint_definition/endpoint_definitions.json"
+ENDPOINT_DEFINITION_PATH = os.path.join(os.path.dirname(__file__), "endpoint_definition", "endpoint_definitions.json")
 
 
 class Component(ComponentBase):
