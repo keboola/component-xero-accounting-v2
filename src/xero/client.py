@@ -1,5 +1,7 @@
+from dataclasses import dataclass
 import logging
-from typing import Dict, List
+from typing import Dict, MutableSet, List, Tuple, Union
+from enum import Enum
 
 from keboola.component.dao import OauthCredentials
 from keboola.component.exceptions import UserException
@@ -19,14 +21,32 @@ class XeroClientException(Exception):
     pass
 
 
-def _get_accounting_model(model_name: str) -> BaseModel:
-    try:
-        model: BaseModel = getattr(xero_python.accounting.models, model_name)
-        # TODO do not use Exception, exactly specify which exception
-    except Exception as e:
-        raise XeroClientException(
-            f"Requested model ({model_name}) not found.") from e
-    return model
+def _get_accounting_model(model_name: str) -> Union[BaseModel, None]:
+    # try:
+    #     model: BaseModel = getattr(xero_python.accounting.models, model_name)
+    #     # TODO do not use Exception, exactly specify which exception
+    # except Exception as e:
+    #     raise XeroClientException(
+    #         f"Requested model ({model_name}) not found.") from e
+    # return model
+    return getattr(xero_python.accounting.models, model_name, None)
+
+@dataclass
+class Table:
+    table_name: str
+    primary_key: MutableSet[str]
+    field_types: Dict[str, str]
+    data: List
+
+    # def __eq__(self, other):
+    #     return other and self.table_name == other.table_name and self.primary_key == other.primary_key
+
+    # def __ne__(self, other):
+    #     return not self.__eq__(other)
+
+    # def __hash__(self):
+    #   return hash((self.table_name, self.primary_key))
+
 
 
 class XeroClient:
@@ -80,10 +100,15 @@ class XeroClient:
                 "Failed to authenticate the client, please reauthorize the component") from http_error
 
     @staticmethod
-    def get_field_names(model_name: str) -> List[str]:
-        return list(_get_accounting_model(model_name).attribute_map.values())
+    def get_field_names(model_name: str) -> Union[List[str], None]:
+        model = _get_accounting_model(model_name)
+        return list(model.attribute_map.values()) if model else None
 
     def get_serialized_accounting_object(self, model_name: str, **kwargs) -> Dict:
+        # TODO: handle paging where needed - some endpoints require paging, e. g. Quotes
+        return serialize(self.get_accounting_object(model_name, **kwargs))
+    
+    def get_accounting_object(self, model_name: str, **kwargs) -> Dict:
         # TODO: handle paging where needed - some endpoints require paging, e. g. Quotes
         accounting_api = AccountingApi(self._api_client)
         model: BaseModel = _get_accounting_model(model_name)
@@ -94,5 +119,77 @@ class XeroClient:
         except Exception as e:
             raise XeroClientException(
                 f"Requested model ({model_name}) not found.") from e
-        data_dict = serialize(data_getter(self.tenant_id, **kwargs))
-        return data_dict
+        return data_getter(self.tenant_id, **kwargs)
+    
+    def parse_accounting_object_into_tables(self, root_object: BaseModel, **kwargs) -> List[Table]:
+        TERMINAL_TYPE_NAMES = frozenset(('str', 'int', 'float', 'bool'))
+        tables: Dict[str, Table] = {}
+        def parse_object(object: BaseModel, parent_object: BaseModel = None) -> Tuple[str, str]:
+            class_name = object.__class__.__name__
+            # id_attr_name = f'{class_name.lower()}_id'
+            # id_field_name = object.attribute_map.get(id_attr_name)
+            id_field_name = f'{class_name}ID'
+            id_attr_name = {v: k for k, v in object.attribute_map.items()}.get(id_field_name, '_')
+            id = (id_attr_name, getattr(object, id_attr_name, None))
+            record = {}
+            primary_key = {id_field_name}
+            # field_types = {object.attribute_map[attr_name]: object.openapi_types[attr_name]
+            #                for attr_name in object.attribute_map
+            #                if object.openapi_types[attr_name] in TERMINAL_TYPE_NAMES} 
+            field_types = {}
+            for attr_name in object.attribute_map:
+                type_name: str = object.openapi_types[attr_name] 
+                if type_name in TERMINAL_TYPE_NAMES:
+                    field_types[object.attribute_map[attr_name]] = object.openapi_types[attr_name]
+                elif type_name.startswith('list'):
+                    pass
+                elif type_name.startswith('date') or issubclass(_get_accounting_model(type_name), Enum):
+                    field_types[object.attribute_map[attr_name]] = 'str'
+                elif issubclass(_get_accounting_model(type_name), BaseModel):
+                    pass
+                else:
+                    raise XeroClientException(f'Unexpected type encountered: {type_name}.')
+            if parent_object:
+                parent_class_name = parent_object.__class__.__name__
+                parent_id_field_name = f'{parent_class_name}ID'
+                parent_id_attr_name = {v: k for k, v in parent_object.attribute_map.items()}.get(parent_id_field_name, '_')
+                parent_id_val = getattr(parent_object, parent_id_attr_name, None)
+                if parent_id_val:
+                    record[parent_id_field_name] = parent_id_val
+                    field_types[parent_id_field_name] = 'str'
+                    primary_key.add(parent_id_field_name)
+            for attribute_name in object.attribute_map:
+                attribute_value = getattr(object, attribute_name)
+                if isinstance(attribute_value, List):
+                    for sub_object in attribute_value:
+                        assert isinstance(sub_object, BaseModel)
+                        parse_object(sub_object, parent_object=object)
+                elif isinstance(attribute_value, BaseModel):
+                    sub_id_attr_name, sub_id_val = parse_object(attribute_value)
+                    sub_id_field_name = attribute_value.attribute_map[sub_id_attr_name]
+                    record[sub_id_field_name] = sub_id_val
+                    field_types[sub_id_field_name] = attribute_value.openapi_types[sub_id_attr_name]
+                elif attribute_value:
+                    field_name = object.attribute_map[attribute_name]
+                    record[field_name] = serialize(attribute_value)
+                    # field_types[field_name] = object.openapi_types[attribute_name]
+            if len(record) > 0:
+                if tables.get(class_name):
+                    table = tables[class_name]
+                else:
+                    table = Table(table_name=class_name,
+                                  primary_key=primary_key,
+                                  field_types=field_types,
+                                  data=[])
+                    tables[class_name] = table
+                table.data.append(record)
+            return id
+        # for attribute_name in object.attribute_map:
+        #     attribute_type = object.openapi_types[attribute_name]
+        #     if attribute_type.startswith('list['):
+        #         tables[object.attribute_map[attribute_name]] = []
+                
+        #     else:
+        parse_object(root_object)
+        pass  # TODO: create tabledef object
+        return list(tables.values())

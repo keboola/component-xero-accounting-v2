@@ -2,12 +2,14 @@ import logging
 import dateparser
 import tempfile
 import os
+import csv
 
 from collections import OrderedDict
 from typing import Dict
 from csv_tools import CachedOrthogonalDictWriter
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
+from keboola.component.interface import register_csv_dialect
 from json_parser import JSONParser, EndpointDefinition
 
 from xero import XeroClient
@@ -35,6 +37,7 @@ class Component(ComponentBase):
         self._writer_cache = dict()
         self.new_state = {}
         super().__init__()
+        register_csv_dialect()
 
     def run(self):
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
@@ -60,27 +63,40 @@ class Component(ComponentBase):
         self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = self.client.get_xero_oauth2_token_dict()
         self.write_state_file(self.new_state)
 
-        endpoint_columns = state.get(KEY_STATE_ENDPOINT_COLUMNS) if state.get(KEY_STATE_ENDPOINT_COLUMNS) else {}
+        # endpoint_columns = state.get(KEY_STATE_ENDPOINT_COLUMNS) if state.get(KEY_STATE_ENDPOINT_COLUMNS) else {}
 
         for endpoint in endpoints:
             logging.info(f"Fetching data for endpoint : {endpoint}")
-            endpoint_definition = EndpointDefinition(ENDPOINT_DEFINITION_PATH, endpoint)
-            parser = JSONParser(endpoint_definition)
+            accounting_object = self.client.get_accounting_object(endpoint)
+            tables = self.client.parse_accounting_object_into_tables(accounting_object)
+            for table in tables:
+                file_name = f'{table.table_name}.csv'
+                table_def = self.create_out_table_definition(name=file_name,
+                                                             primary_key=list(table.primary_key),
+                                                             columns=list(table.field_types.keys()))
+                # for field_name, field_type in table.field_types.items():  # TODO: finish handling data types - do it in client.py already
+                #     table_def.table_metadata.add_column_data_type(field_name, field_type)
+                self.write_manifest(table_def)
+                with open(os.path.join(self.tables_out_path, file_name), 'w') as f:  # TODO: use UUID slices to avoid conflicts and for pagination
+                    csv_writer = csv.DictWriter(f, dialect='kbc', fieldnames=table.field_types.keys())
+                    csv_writer.writerows(table.data)
+            # endpoint_definition = EndpointDefinition(ENDPOINT_DEFINITION_PATH, endpoint)
+            # parser = JSONParser(endpoint_definition)
 
-            self.create_tables_from_endpoint_definition(endpoint_definition, endpoint_columns)
-            fieldnames = endpoint_columns if endpoint_columns else {}
+            # self.create_tables_from_endpoint_definition(endpoint_definition, endpoint_columns)
+            # fieldnames = endpoint_columns if endpoint_columns else {}
 
-            if endpoint == 'Accounts':
-                self.download_accounts(parser, modified_since=modified_since, fieldnames=fieldnames)
-            elif endpoint == 'Quotes':
-                self.download_quotes(parser, fieldnames)
+            # if endpoint == 'Accounts':
+            #     self.download_accounts(parser, modified_since=modified_since, fieldnames=fieldnames)
+            # elif endpoint == 'Quotes':
+            #     self.download_quotes(parser, fieldnames)
 
         # important to update the table columns to the same values as the final columns of the Orthogonal Writer
-        self.update_table_definitions()
+        # self.update_table_definitions()
         self._close_writers()
-        self.write_table_manifests()
-        self.update_endpoint_columns_in_state()
-        self.write_state_file(self.new_state)
+        # self.write_table_manifests()
+        # self.update_endpoint_columns_in_state()
+        # self.write_state_file(self.new_state)
 
     def download_accounts(self, parser: JSONParser, modified_since: str = None, fieldnames: Dict = None):
         # TODO : simplify the functions
