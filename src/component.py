@@ -65,7 +65,9 @@ class Component(ComponentBase):
                 accounting_object)
             for table in tables:
                 self.write_manifest(table.table_definition)
-                with open(os.path.join(self.tables_out_path, table.table_definition.name), 'w') as f:
+                base_path = os.path.join(self.tables_out_path, table.table_definition.name)
+                os.makedirs(base_path, exist_ok=True)
+                with open(os.path.join(base_path, f'{endpoint}.csv'), 'w') as f:
                     # TODO: use UUID slices to avoid conflicts and for pagination
                     csv_writer = csv.DictWriter(
                         f, dialect='kbc', fieldnames=table.table_definition.columns)
