@@ -172,6 +172,7 @@ class XeroClient:
                 #     raise XeroClientException(
                 #         f'Unexpected type encountered: {type_name}.')
             if parent_object:
+                # TODO: pass just parent_id_field_name and parent_id_field_val
                 parent_class_name = parent_object.__class__.__name__
                 parent_id_field_name = f'{parent_class_name}ID'
                 parent_id_attr_name = {v: k for k, v in parent_object.attribute_map.items()}.get(
@@ -207,11 +208,16 @@ class XeroClient:
                 field_name = object.attribute_map[attribute_name]
                 if isinstance(attribute_value, List):
                     # TODO: TaxRate class contains structs in list, implement case for structs here (how?)
+                    # TODO: handle Phones in Organistations and Contacts having different foreign keys
+                    # TODO: do not process Payments in BatchPayments - possibly all directly downloadable objects
+                    # TODO: fix LineItems in Quotes without breaking it for RepeatingInvoices
                     for sub_object in attribute_value:
                         assert isinstance(sub_object, BaseModel)
                         parse_object(sub_object, parent_object=object)
                 elif isinstance(attribute_value, BaseModel):
                     if f'{field_name}ID' in attribute_value.attribute_map.values(): # check if struct or full object
+                        # TODO: check if downloadable instead of whether it has ID
+                        # TODO?: log warning to suggest downloading the appropriate endpoint to the user?
                         sub_class_name = attribute_value.__class__.__name__
                         sub_id_field_name = f'{sub_class_name}ID'
                         sub_id_attr_name = {v: k for k, v in attribute_value.attribute_map.items()}.get(sub_id_field_name)
