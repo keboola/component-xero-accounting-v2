@@ -206,16 +206,21 @@ class XeroClient:
                 attribute_value = getattr(object, attribute_name)
                 field_name = object.attribute_map[attribute_name]
                 if isinstance(attribute_value, List):
+                    # TODO: TaxRate class contains structs in list, implement case for structs here (how?)
                     for sub_object in attribute_value:
                         assert isinstance(sub_object, BaseModel)
                         parse_object(sub_object, parent_object=object)
                 elif isinstance(attribute_value, BaseModel):
                     if f'{field_name}ID' in attribute_value.attribute_map.values(): # check if struct or full object
-                        sub_id_attr_name, sub_id_val = parse_object(
-                            attribute_value)
+                        sub_class_name = attribute_value.__class__.__name__
+                        sub_id_field_name = f'{sub_class_name}ID'
+                        sub_id_attr_name = {v: k for k, v in attribute_value.attribute_map.items()}.get(sub_id_field_name)
+                        sub_id_val = getattr(attribute_value, sub_id_attr_name)
+                        # sub_id_attr_name, sub_id_val = parse_object(
+                        #     attribute_value)
                         assert isinstance(sub_id_val, str)
-                        sub_id_field_name = attribute_value.attribute_map.get(
-                            sub_id_attr_name)
+                        # sub_id_field_name = attribute_value.attribute_map.get(
+                        #     sub_id_attr_name)
                         record[sub_id_field_name] = sub_id_val
                         field_types[sub_id_field_name] = attribute_value.openapi_types[sub_id_attr_name]
                     else:
