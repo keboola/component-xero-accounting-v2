@@ -55,7 +55,7 @@ class Component(ComponentBase):
         self.client.update_tenants()
 
         self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = self.client.get_xero_oauth2_token_dict()
-        self.write_state_file(self.new_state)
+        self.write_state_file(self.new_state)  # TODO: state should be saved even on subsequent run failure
 
         for endpoint in endpoints:
             logging.info(f"Fetching data for endpoint : {endpoint}")
@@ -72,6 +72,10 @@ class Component(ComponentBase):
                     csv_writer = csv.DictWriter(
                         f, dialect='kbc', fieldnames=table.table_definition.columns)
                     csv_writer.writerows(table.data)
+        
+        self.client.force_refresh_token()
+        self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = self.client.get_xero_oauth2_token_dict()
+        self.write_state_file(self.new_state)
 
 
 """

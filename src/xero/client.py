@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import logging
-from typing import Dict, List, Tuple, Union, Mapping
+from typing import Any, Dict, List, Tuple, Union, Mapping, Callable
 from enum import Enum
 
 from keboola.component.dao import OauthCredentials, SupportedDataTypes, TableDefinition
@@ -41,6 +41,72 @@ def _flatten_dict(d: Mapping, parent_key: str = '', sep: str = '_') -> Dict:
 
 def _get_accounting_model(model_name: str) -> Union[BaseModel, None]:
     return getattr(xero_python.accounting.models, model_name, None)
+
+# Adding methods to BaseModel class
+def add_as_a_method_of(cls): # decorator that adds the decorated function as a method of cls
+    def decorator(func):
+        setattr(cls, func.__name__, func)
+        return func
+    return decorator
+
+@add_as_a_method_of(BaseModel)
+def get_field_names(self: BaseModel) -> List[str]:
+    return list(self.attribute_map.values())
+
+@add_as_a_method_of(BaseModel)
+def get_field_name(self: BaseModel, attr_name: str) -> Union[str, None]:
+    return self.attribute_map.get(attr_name)
+
+@add_as_a_method_of(BaseModel)
+def get_attr_name(self: BaseModel, field_name: str) -> Union[str, None]:
+    inv_map = {v: k for k, v in self.attribute_map.items()}
+    return inv_map.get(field_name)
+
+@add_as_a_method_of(BaseModel)
+def get_field_value(self: BaseModel, field_name: str, default = None) -> Any:
+    attr_name = self.get_attr_name(field_name)
+    if attr_name:
+        return getattr(self, attr_name, default)
+    else:
+        return default
+
+@add_as_a_method_of(BaseModel)
+def get_id_field_name(self: BaseModel) -> Union[str, None]:
+    return f'{self.__class__.__name__}ID'
+
+@add_as_a_method_of(BaseModel)
+def get_id_attribute_name(self: BaseModel) -> Union[str, None]:
+    return self.get_attr_name(self.get_id_field_name())
+
+@add_as_a_method_of(BaseModel)
+def get_id_value(self: BaseModel) -> Union[str, None]:
+    id_value = self.get_field_value(self.get_id_field_name())
+    if id_value:
+        assert isinstance(id_value, str)
+    return id_value
+
+@add_as_a_method_of(BaseModel)
+def has_id(self: BaseModel) -> Union[str, None]:
+    return self.get_id_attribute_name() is not None
+
+@add_as_a_method_of(BaseModel)
+def get_download_method_name(self: BaseModel) -> Union[Callable, None]:
+    id_attr_name = self.get_id_attribute_name()
+    getter_name = None
+    if id_attr_name:
+        getter_name = f'get_{id_attr_name.replace("_id", "")}'
+    else:
+        if len(self.attribute_map) == 1:
+            getter_name = f'get_{self.get_attr_name(self.__class__.__name__)}'
+    if getter_name and hasattr(AccountingApi, getter_name):
+        return getter_name
+    else:
+        return None
+
+@add_as_a_method_of(BaseModel)
+def is_downloadable(self: BaseModel) -> bool:
+    return self.get_download_method_name() is not None
+
 
 
 @dataclass
@@ -107,15 +173,15 @@ class XeroClient:
     def get_accounting_object(self, model_name: str, **kwargs) -> Dict:
         # TODO: handle paging where needed - some endpoints require paging, e. g. Quotes
         accounting_api = AccountingApi(self._api_client)
-        model: BaseModel = _get_accounting_model(model_name)
-        inv_map = {v: k for k, v in model.attribute_map.items()}
-        try:
-            data_getter = getattr(
-                accounting_api, f'get_{inv_map[model_name]}')
-        except Exception as e:
+        model: BaseModel = _get_accounting_model(model_name)()
+        # inv_map = {v: k for k, v in model.attribute_map.items()}
+        getter_name = model.get_download_method_name()
+        if getter_name:
+            getter = getattr(accounting_api, getter_name)
+            return getter(self.tenant_id, **kwargs)
+        else:
             raise XeroClientException(
-                f"Requested model ({model_name}) not found.") from e
-        return data_getter(self.tenant_id, **kwargs)
+                f"Requested model ({model_name}) getter function not found.")
 
     def get_serialized_accounting_object(self, model_name: str, **kwargs) -> Dict:
         # TODO: handle paging where needed - some endpoints require paging, e. g. Quotes
@@ -127,7 +193,6 @@ class XeroClient:
         def resolve_serialized_type(type_name: str, struct: bool = False) -> Union[str, None]:
             # TODO: add special case for date/timestamp as metadata
             # TODO: resolve down to Keboola supported type with length
-            # TODO: create table definition independently of data
             if type_name in TERMINAL_TYPE_MAPPING:
                 r = type_name
             elif type_name.startswith('list'):
@@ -144,99 +209,92 @@ class XeroClient:
                     f'Unexpected type encountered in struct: {type_name}.')
             return r
 
-        def parse_object(object: BaseModel, parent_object: BaseModel = None) -> Tuple[str, str]:
-            class_name = object.__class__.__name__
-            id_field_name = f'{class_name}ID'
-            id_attr_name = {v: k for k, v in object.attribute_map.items()}.get(
-                id_field_name, '_')
-            id = (id_attr_name, getattr(object, id_attr_name, None))
-            record = {}
-            primary_key = {id_field_name}
+        def parse_object(accounting_object: BaseModel, parent_object: BaseModel = None) -> None:
+            # pass parent ID name and value instead of the whole object
+            table_name = accounting_object.__class__.__name__
+            row_dict = {}
+            if accounting_object.get_id_value():
+                primary_key = {accounting_object.get_id_field_name()}
+            else:
+                # TODO: implement computed ID
+                primary_key = set()
             field_types = {}
-            for attribute_name in object.attribute_map:
+            for attribute_name in accounting_object.attribute_map:
                 resolved_type_name = resolve_serialized_type(
-                    object.openapi_types[attribute_name])
+                    accounting_object.openapi_types[attribute_name])
                 if resolved_type_name:
-                    field_types[object.attribute_map[attribute_name]
+                    field_types[accounting_object.attribute_map[attribute_name]
                                 ] = resolved_type_name
-                # if type_name in TERMINAL_TYPE_MAPPING:
-                #     field_types[object.attribute_map[attribute_name]
-                #                 ] = object.openapi_types[attribute_name]
-                # elif type_name.startswith('list'):
-                #     pass
-                # elif type_name.startswith('date') or issubclass(_get_accounting_model(type_name), Enum):
-                #     field_types[object.attribute_map[attribute_name]] = 'str'
-                # elif issubclass(_get_accounting_model(type_name), BaseModel):
-                #     pass
-                # else:
-                #     raise XeroClientException(
-                #         f'Unexpected type encountered: {type_name}.')
             if parent_object:
-                # TODO: pass just parent_id_field_name and parent_id_field_val
-                parent_class_name = parent_object.__class__.__name__
-                parent_id_field_name = f'{parent_class_name}ID'
-                parent_id_attr_name = {v: k for k, v in parent_object.attribute_map.items()}.get(
-                    parent_id_field_name, '_')
-                parent_id_val = getattr(
-                    parent_object, parent_id_attr_name, None)
-                if parent_id_val:
-                    record[parent_id_field_name] = parent_id_val
+                table_name = f'{parent_object.__class__.__name__}_{table_name}'
+                parent_id_field_name = parent_object.get_id_field_name()
+                parent_id_val = parent_object.get_id_value()
+                if parent_id_field_name and parent_id_val:
+                    row_dict[parent_id_field_name] = parent_id_val
                     field_types[parent_id_field_name] = 'str'
                     primary_key.add(parent_id_field_name)
+                else:
+                    raise XeroClientException("Parent object must have defined ID if specified.")
             def parse_struct(struct: BaseModel, prefix: str):
                 for struct_attr_name in struct.attribute_map:
                     struct_attr_val = getattr(struct, struct_attr_name)
-                    struct_field_name = struct.attribute_map[struct_attr_name]
-                    parent_field_name = f'{prefix}_{struct_field_name}'
+                    struct_field_name = struct.get_field_name(struct_attr_name)
+                    field_name_inside_parent = f'{prefix}_{struct_field_name}'
                     if isinstance(struct_attr_val, List):
                         raise XeroClientException(
                                 f'Unexpected type encountered in struct: {struct.openapi_types[struct_attr_name]}.')
                     elif isinstance(struct_attr_val, BaseModel):
-                        if f'{field_name}ID' in struct.attribute_map.values():
+                        if struct.is_downloadable():
                             raise XeroClientException(
                                 f'Unexpected type encountered in struct: {struct.openapi_types[struct_attr_name]}.')
                         else:
-                            parse_struct(struct_attr_val, parent_field_name)
+                            parse_struct(struct_attr_val, field_name_inside_parent)
                     elif struct_attr_val:
-                        record[parent_field_name] = serialize(
+                        row_dict[field_name_inside_parent] = serialize(
                             struct_attr_val) if struct_attr_val else None
-                        field_types[parent_field_name] = resolve_serialized_type(
+                        field_types[field_name_inside_parent] = resolve_serialized_type(
                             struct.openapi_types[struct_attr_name], struct=True)
-                pass
-            for attribute_name in object.attribute_map:
-                attribute_value = getattr(object, attribute_name)
-                field_name = object.attribute_map[attribute_name]
+            for attribute_name in accounting_object.attribute_map:
+                attribute_value = getattr(accounting_object, attribute_name)
+                field_name = accounting_object.attribute_map[attribute_name]
                 if isinstance(attribute_value, List):
-                    # TODO: TaxRate class contains structs in list, implement case for structs here (how?)
                     # TODO: handle Phones in Organistations and Contacts having different foreign keys
-                    # TODO: do not process Payments in BatchPayments - possibly all directly downloadable objects
-                    # TODO: fix LineItems in Quotes without breaking it for RepeatingInvoices
+                    # i = 0
                     for sub_object in attribute_value:
-                        assert isinstance(sub_object, BaseModel)
-                        parse_object(sub_object, parent_object=object)
+                        if isinstance(sub_object, List):
+                            raise XeroClientException(
+                                f'Unexpected type encountered: list within list in {field_name} field within object'
+                                f' of type {table_name}.')
+                        elif isinstance(sub_object, BaseModel):
+                            if sub_object.has_id():
+                                if sub_object.is_downloadable():
+                                    parse_object(sub_object, parent_object=accounting_object)  # TODO: probably redundant
+                                    pass # TODO: warn that given object may be downloadable via different endpoint?
+                                else:
+                                    parse_object(sub_object, parent_object=accounting_object)
+                            else:
+                                # TODO: TaxRate class contains structs in list, check if this is fine
+                                parse_object(sub_object, parent_object=accounting_object)
+                                # i = i + 1
+                        elif sub_object:
+                            raise XeroClientException(
+                                f'Unexpected type encountered: {type(sub_object)} within list in {field_name} field within object'
+                                f' of type {table_name}.')
                 elif isinstance(attribute_value, BaseModel):
-                    if f'{field_name}ID' in attribute_value.attribute_map.values(): # check if struct or full object
-                        # TODO: check if downloadable instead of whether it has ID
+                    if attribute_value.is_downloadable():
                         # TODO?: log warning to suggest downloading the appropriate endpoint to the user?
-                        sub_class_name = attribute_value.__class__.__name__
-                        sub_id_field_name = f'{sub_class_name}ID'
-                        sub_id_attr_name = {v: k for k, v in attribute_value.attribute_map.items()}.get(sub_id_field_name)
-                        sub_id_val = getattr(attribute_value, sub_id_attr_name)
-                        # sub_id_attr_name, sub_id_val = parse_object(
-                        #     attribute_value)
-                        assert isinstance(sub_id_val, str)
-                        # sub_id_field_name = attribute_value.attribute_map.get(
-                        #     sub_id_attr_name)
-                        record[sub_id_field_name] = sub_id_val
-                        field_types[sub_id_field_name] = attribute_value.openapi_types[sub_id_attr_name]
+                        sub_id_field_name = attribute_value.get_id_field_name()
+                        sub_id_val = attribute_value.get_id_value()
+                        row_dict[sub_id_field_name] = sub_id_val
+                        field_types[sub_id_field_name] = 'str'
                     else:
-                        parse_struct(attribute_value, field_name)
+                        parse_struct(attribute_value, prefix=field_name)
                 elif attribute_value:
-                    record[field_name] = serialize(attribute_value)
-            if len(record) > 0:  # TODO: ignore ID only records
-                table = tables.get(class_name)
+                    row_dict[field_name] = serialize(attribute_value)
+            if len(row_dict) > 0:  # TODO: ignore ID only records
+                table = tables.get(table_name)
                 if table is None:
-                    table_definiton = self.component.create_out_table_definition(name=f'{class_name}.csv',
+                    table_definiton = self.component.create_out_table_definition(name=f'{table_name}.csv',
                                                                                  primary_key=list(
                                                                                      primary_key),
                                                                                  columns=list(field_types.keys()))
@@ -248,7 +306,7 @@ class XeroClient:
                                                                                    source_data_type=source_field_type,
                                                                                    data_type=output_type['type'],
                                                                                    length=output_type.get('length'))
-                    tables[class_name] = table
+                    tables[table_name] = table
                 else:
                     extra_columns = sorted(set(field_types.keys()) -
                                            set(table.table_definition.columns))
@@ -260,7 +318,13 @@ class XeroClient:
                                                                                    source_data_type=field_types[extra_column],
                                                                                    data_type=output_type['type'],
                                                                                    length=output_type.get('length'))  
-                table.data.append(record)
+                table.data.append(row_dict)
             return id
-        parse_object(root_object)
+        
+        root_attr_list = list(root_object.attribute_map.keys())
+        assert len(root_attr_list) == 1
+        root_attr_to_parse = root_attr_list[0]
+        list_to_parse = getattr(root_object, root_attr_to_parse)
+        for o in list_to_parse:
+            parse_object(o)
         return list(tables.values())
