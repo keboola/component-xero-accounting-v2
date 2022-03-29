@@ -61,19 +61,23 @@ class Component(ComponentBase):
         for endpoint in endpoints:
             logging.info(f"Fetching data for endpoint : {endpoint}")
             page_number = 1
+            table_defs = self.client.get_table_definitions(endpoint)
+            # for table_def in table_defs.values():
+            #     self.write_manifest(table_def)
             for accounting_object in self.client.get_accounting_object(
                     endpoint, if_modified_since=modified_since):
                 tables = self.client.parse_accounting_object_into_tables(
                     accounting_object)
-                for table in tables:
+                for table_name, table in tables.items():
+                    table_def = table_defs[table_name]
                     if page_number == 1:
-                        self.write_manifest(table.table_definition)
+                        self.write_manifest(table_def)
                     base_path = os.path.join(
-                        self.tables_out_path, table.table_definition.name)
+                        self.tables_out_path, table_def.name)
                     os.makedirs(base_path, exist_ok=True)
                     with open(os.path.join(base_path, f'{endpoint}_{page_number}.csv'), 'w') as f:
                         csv_writer = csv.DictWriter(
-                            f, dialect='kbc', fieldnames=table.table_definition.columns)
+                            f, dialect='kbc', fieldnames=table_def.columns)
                         csv_writer.writerows(table.data)
                 page_number = page_number + 1
 
