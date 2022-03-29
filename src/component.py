@@ -55,26 +55,28 @@ class Component(ComponentBase):
         self.client.update_tenants()
 
         self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = self.client.get_xero_oauth2_token_dict()
-        self.write_state_file(self.new_state)  # TODO: state should be saved even on subsequent run failure
+        # TODO: state should be saved even on subsequent run failure
+        self.write_state_file(self.new_state)
 
         for endpoint in endpoints:
             logging.info(f"Fetching data for endpoint : {endpoint}")
             page_number = 1
             for accounting_object in self.client.get_accounting_object(
-                endpoint, if_modified_since=modified_since):
+                    endpoint, if_modified_since=modified_since):
                 tables = self.client.parse_accounting_object_into_tables(
                     accounting_object)
                 for table in tables:
                     if page_number == 1:
                         self.write_manifest(table.table_definition)
-                    base_path = os.path.join(self.tables_out_path, table.table_definition.name)
+                    base_path = os.path.join(
+                        self.tables_out_path, table.table_definition.name)
                     os.makedirs(base_path, exist_ok=True)
                     with open(os.path.join(base_path, f'{endpoint}_{page_number}.csv'), 'w') as f:
                         csv_writer = csv.DictWriter(
                             f, dialect='kbc', fieldnames=table.table_definition.columns)
                         csv_writer.writerows(table.data)
                 page_number = page_number + 1
-        
+
         self.client.force_refresh_token()
         self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = self.client.get_xero_oauth2_token_dict()
         self.write_state_file(self.new_state)
