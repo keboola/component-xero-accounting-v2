@@ -47,18 +47,21 @@ def add_as_a_method_of(cls):
 
 
 @add_as_a_method_of(BaseModel)
-def get_field_names(self: BaseModel) -> List[str]:
-    return list(self.attribute_map.values())
+@classmethod
+def get_field_names(cls: BaseModel) -> List[str]:
+    return list(cls.attribute_map.values())
 
 
 @add_as_a_method_of(BaseModel)
-def get_field_name(self: BaseModel, attr_name: str) -> Union[str, None]:
-    return self.attribute_map.get(attr_name)
+@classmethod
+def get_field_name(cls: BaseModel, attr_name: str) -> Union[str, None]:
+    return cls.attribute_map.get(attr_name)
 
 
 @add_as_a_method_of(BaseModel)
-def get_attr_name(self: BaseModel, field_name: str) -> Union[str, None]:
-    inv_map = {v: k for k, v in self.attribute_map.items()}
+@classmethod
+def get_attr_name(cls: BaseModel, field_name: str) -> Union[str, None]:
+    inv_map = {v: k for k, v in cls.attribute_map.items()}
     return inv_map.get(field_name)
 
 
@@ -72,11 +75,13 @@ def get_field_value(self: BaseModel, field_name: str, default=None) -> Any:
 
 
 @add_as_a_method_of(BaseModel)
-def get_id_field_name(self: BaseModel) -> Union[str, None]:
-    return f'{self.__class__.__name__}ID'
+@classmethod
+def get_id_field_name(cls: BaseModel) -> Union[str, None]:
+    return f'{cls.__name__}ID'
 
 
 @add_as_a_method_of(BaseModel)
+@classmethod
 def get_id_attribute_name(self: BaseModel) -> Union[str, None]:
     return self.get_attr_name(self.get_id_field_name())
 
@@ -90,19 +95,21 @@ def get_id_value(self: BaseModel) -> Union[str, None]:
 
 
 @add_as_a_method_of(BaseModel)
-def has_id(self: BaseModel) -> Union[str, None]:
-    return self.get_id_attribute_name() is not None
+@classmethod
+def has_id(cls: BaseModel) -> Union[str, None]:
+    return cls.get_id_attribute_name() is not None
 
 
 @add_as_a_method_of(BaseModel)
-def get_download_method_name(self: BaseModel) -> Union[Callable, None]:
-    id_attr_name = self.get_id_attribute_name()
+@classmethod
+def get_download_method_name(cls: BaseModel) -> Union[Callable, None]:
+    id_attr_name = cls.get_id_attribute_name()
     getter_name = None
     if id_attr_name:
         getter_name = f'get_{id_attr_name.replace("_id", "")}'
     else:
-        if len(self.attribute_map) == 1:
-            getter_name = f'get_{self.get_attr_name(self.__class__.__name__)}'
+        if len(cls.attribute_map) == 1:
+            getter_name = f'get_{cls.get_attr_name(cls.__name__)}'
     if getter_name and hasattr(AccountingApi, getter_name):
         return getter_name
     else:
@@ -110,8 +117,9 @@ def get_download_method_name(self: BaseModel) -> Union[Callable, None]:
 
 
 @add_as_a_method_of(BaseModel)
-def is_downloadable(self: BaseModel) -> bool:
-    return self.get_download_method_name() is not None
+@classmethod
+def is_downloadable(cls: BaseModel) -> bool:
+    return cls.get_download_method_name() is not None
 
 
 @add_as_a_method_of(BaseModel)
@@ -184,14 +192,9 @@ class XeroClient:
                 raise UserException(f"Specified Tenant ID ({self.tenant_id}) is not accessible,"
                                     " please, check if you granted sufficient credentials.")
 
-    @staticmethod
-    def get_field_names(model_name: str) -> Union[List[str], None]:
-        model = _get_accounting_model(model_name)
-        return list(model.attribute_map.values()) if model else None
-
     def get_accounting_object(self, model_name: str, **kwargs) -> Iterable[BaseModel]:
         accounting_api = AccountingApi(self._api_client)
-        model: BaseModel = _get_accounting_model(model_name)()
+        model: BaseModel = _get_accounting_model(model_name)
         getter_name = model.get_download_method_name()
         if getter_name:
             getter = getattr(accounting_api, getter_name)
