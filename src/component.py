@@ -1,4 +1,5 @@
 import logging
+from typing import Dict
 import dateparser
 import os
 import csv
@@ -36,9 +37,10 @@ class Component(ComponentBase):
         self.validate_configuration_parameters(REQUIRED_PARAMETERS)
         self.validate_image_parameters(REQUIRED_IMAGE_PARS)
 
-        params = self.configuration.parameters
-        modified_since = dateparser.parse(
-            params.get(KEY_MODIFIED_SINCE)).isoformat()
+        params: Dict = self.configuration.parameters
+        modified_since = params.get(KEY_MODIFIED_SINCE)
+        if modified_since:
+            modified_since = dateparser.parse(modified_since).isoformat()
         endpoints = params.get(KEY_ENDPOINTS)
         tenant_id = params.get(KEY_TENANT_ID)
 

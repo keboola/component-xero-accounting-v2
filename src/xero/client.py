@@ -99,8 +99,8 @@ class XeroClient:
         if getter_name:
             getter = getattr(accounting_api, getter_name)
             getter_signature = inspect.signature(getter)
-            used_kwargs = {k: v for k, v in kwargs.items(
-            ) if k in getter_signature.parameters}
+            used_kwargs = {k: v for k, v in kwargs.items()
+                           if k in getter_signature.parameters and v is not None}
             if 'page' in getter_signature.parameters:
                 used_kwargs['page'] = 1
                 while True:
@@ -295,6 +295,7 @@ class XeroClient:
             return r
         table_defs: Dict[str, TableDefinition] = {}
         model_name: str
+
         def add_table_def_of(model: BaseModel,
                              table_name_prefix: str = None,
                              parent_id_field_name: str = None):
@@ -355,9 +356,10 @@ class XeroClient:
                                                  parent_id_field_name=id_field_name)
                             elif element_resolved_type == 'downloadable_object':
                                 # TODO: warn that full object may be downloadable via different endpoint?
-                                if element_type_name != model_name:  # This prevents infinite recrusion here (Contacts <-> ContactGroups)
+                                # This prevents infinite recrusion here (Contacts <-> ContactGroups)
+                                if element_type_name != model_name:
                                     add_table_def_of(get_accounting_model(element_type_name),
-                                                    table_name_prefix=table_name, parent_id_field_name=id_field_name)
+                                                     table_name_prefix=table_name, parent_id_field_name=id_field_name)
                             else:
                                 raise XeroClientException(
                                     f"Unexpected attribute type encountered: {attr_type_name}.")
