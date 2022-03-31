@@ -1,5 +1,5 @@
 import logging
-from typing import Dict
+from typing import Dict, List, Union
 import dateparser
 import os
 import csv
@@ -9,6 +9,7 @@ from keboola.component.exceptions import UserException
 from keboola.component.interface import register_csv_dialect
 
 from xero import XeroClient
+from xero.utility import KeboolaDeleteWhereSpec
 
 # configuration variables
 KEY_MODIFIED_SINCE = 'modified_since'
@@ -54,32 +55,48 @@ class Component(ComponentBase):
         self.client = XeroClient(
             oauth_credentials, tenant_id=tenant_id, component=self)
         self.client.force_refresh_token()
-        self.client.update_tenants()
 
         self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = self.client.get_xero_oauth2_token_dict()
         # TODO: state should be saved even on subsequent run failure
         self.write_state_file(self.new_state)
 
+        self.client.update_tenants()
+
         for endpoint in endpoints:
             logging.info(f"Fetching data for endpoint : {endpoint}")
             page_number = 1
             table_defs = self.client.get_table_definitions(endpoint)
+            tables_to_define: List[str] = []
+            delete_where_specs: Dict[str,
+                                     Union[KeboolaDeleteWhereSpec, None]] = {}
             for accounting_object_list in self.client.get_accounting_object(
                     endpoint, if_modified_since=modified_since):
-                tables = self.client.parse_accounting_object_list_into_tables(
+                tables_data = self.client.parse_accounting_object_list_into_tables(
                     accounting_object_list)
-                for table_name, table in tables.items():
+                for table_name, table_data in tables_data.items():
                     table_def = table_defs[table_name]
-                    if page_number == 1:  # TODO: merge delete_where values across pages, write manifest after merge
-                        self.write_manifest(table_def)
+                    if page_number == 1:
+                        tables_to_define.append(table_name)
+                        delete_where_specs[table_name] = table_data.to_delete
+                    elif delete_where_specs[table_name]:
+                        delete_where_specs[table_name].values.update(
+                            table_data.to_delete.values)
                     base_path = os.path.join(
                         self.tables_out_path, table_def.name)
                     os.makedirs(base_path, exist_ok=True)
                     with open(os.path.join(base_path, f'{endpoint}_{page_number}.csv'), 'w') as f:
                         csv_writer = csv.DictWriter(
                             f, dialect='kbc', fieldnames=table_def.columns)
-                        csv_writer.writerows(table.data)
+                        csv_writer.writerows(table_data.to_add)
                 page_number += 1
+            for table_name in tables_to_define:
+                table_def = table_defs[table_name]
+                delete_where_spec = delete_where_specs[table_name]
+                if delete_where_spec:
+                    table_def.set_delete_where_from_dict({'column': delete_where_spec.column,
+                                                          'operator': delete_where_spec.operator,
+                                                          'values': list(delete_where_spec.values)})
+                self.write_manifest(table_def)
 
         self.client.force_refresh_token()
         self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = self.client.get_xero_oauth2_token_dict()

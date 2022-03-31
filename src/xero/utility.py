@@ -1,6 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, List, Union, Callable
+from typing import Any, List, Set, Union, Callable, Dict
 from keboola.component.dao import SupportedDataTypes
 from xero_python.models import BaseModel
 from xero_python.accounting import AccountingApi
@@ -16,6 +16,19 @@ class XeroException(Exception):
 class KeboolaTypeSpec:
     type: SupportedDataTypes
     length: str = None
+
+
+@dataclass
+class KeboolaDeleteWhereSpec:
+    column: str
+    values: Set[str] = field(default_factory=lambda: set())
+    operator: str = 'eq'
+
+
+@dataclass
+class TableData:
+    to_add: List[Dict] = field(default_factory=lambda: [])
+    to_delete: Union[KeboolaDeleteWhereSpec, None] = None
 
 
 # Configuration variables
@@ -35,27 +48,27 @@ def get_element_type_name(type_str: str) -> Union[str, None]:
         return None
 
 
-def resolve_attribute_type(attribute_type: str) -> str:
+def resolve_attribute_type(type_name: str) -> str:
     # TODO: make common with parse_accounting_object_into_tables method
-    if attribute_type in TERMINAL_TYPE_MAPPING:
-        r = attribute_type
-    elif attribute_type.startswith("datetime"):
+    if type_name in TERMINAL_TYPE_MAPPING:
+        r = type_name
+    elif type_name.startswith("datetime"):
         r = "datetime"
-    elif attribute_type.startswith("date"):
+    elif type_name.startswith("date"):
         r = "date"
-    elif attribute_type.startswith("list"):
+    elif type_name.startswith("list"):
         r = 'list'
-    elif issubclass(get_accounting_model(attribute_type), Enum):
+    elif issubclass(get_accounting_model(type_name), Enum):
         r = 'str'
-    elif issubclass(get_accounting_model(attribute_type), BaseModel):
-        model: BaseModel = get_accounting_model(attribute_type)
+    elif issubclass(get_accounting_model(type_name), BaseModel):
+        model: BaseModel = get_accounting_model(type_name)
         if model.is_downloadable():
             r = 'downloadable_object'
         else:
             r = 'struct'
     else:
         raise XeroException(
-            f'Unexpected type encountered: {attribute_type}.')
+            f'Unexpected type encountered: {type_name}.')
     return r
 
 
