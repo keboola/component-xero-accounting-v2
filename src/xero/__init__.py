@@ -1,1 +1,2 @@
-from .client import XeroClient, XeroClientException # noqa
+from .client import XeroClient
+from .utility import XeroException
