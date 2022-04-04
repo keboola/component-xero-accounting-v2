@@ -10,11 +10,13 @@ from keboola.component.interface import register_csv_dialect
 
 from xero.client import XeroClient
 from xero.utility import KeboolaDeleteWhereSpec
+from xero.table_data_factory import TableDataFactory
+from xero.table_definition_factory import TableDefinitionFactory
 
 # configuration variables
 KEY_MODIFIED_SINCE = 'modified_since'
 KEY_ENDPOINTS = 'endpoints'
-KEY_TENANT_ID = 'tenant_id'
+KEY_TENANT_IDS = 'tenant_ids'
 
 KEY_STATE_OAUTH_TOKEN_DICT = "#oauth_token_dict"
 KEY_STATE_ENDPOINT_COLUMNS = "endpoint_columns"
@@ -43,7 +45,7 @@ class Component(ComponentBase):
         if modified_since:
             modified_since = dateparser.parse(modified_since).isoformat()
         endpoints = params.get(KEY_ENDPOINTS)
-        tenant_id = params.get(KEY_TENANT_ID)
+        tenant_ids_to_download = params.get(KEY_TENANT_IDS)
 
         oauth_credentials = self.configuration.oauth_credentials
 
@@ -53,26 +55,47 @@ class Component(ComponentBase):
             oauth_credentials.data = oauth_token_dict
 
         self.client = XeroClient(
-            oauth_credentials, tenant_id=tenant_id, component=self)
-        self.client.force_refresh_token()
+            oauth_credentials, component=self)
 
-        self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = self.client.get_xero_oauth2_token_dict()
         # TODO: state should be saved even on subsequent run failure
+        self.refresh_and_save_state()
+
+        available_tenant_ids = self.client.get_available_tenant_ids()
+        if tenant_ids_to_download is None:
+            tenant_ids_to_download = available_tenant_ids
+            logging.warning(
+                f'Tenant IDs not specified, using all available: {available_tenant_ids}.')
+        else:
+            unavailable_tenants = set(
+                tenant_ids_to_download) - set(available_tenant_ids)
+            if unavailable_tenants:
+                unavailable_tenants_str = ', '.join(unavailable_tenants)
+                raise UserException(f"Some tenants to be downloaded (IDs: {unavailable_tenants_str})"
+                                    f" are not accessible,"
+                                    f" please, check if you granted sufficient credentials.")
+        for endpoint in endpoints:
+            self.download_endpoint(endpoint_name=endpoint, tenant_ids=tenant_ids_to_download,
+                                   if_modified_since=modified_since)
+        self.refresh_and_save_state()
+
+    def refresh_and_save_state(self):
+        self.client.force_refresh_token()
+        self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = self.client.get_xero_oauth2_token_dict()
         self.write_state_file(self.new_state)
 
-        self.client.update_tenants()
-
-        for endpoint in endpoints:
-            logging.info(f"Fetching data for endpoint : {endpoint}")
-            page_number = 1
-            table_defs = self.client.get_table_definitions(endpoint)
-            tables_to_define: List[str] = []
-            delete_where_specs: Dict[str,
-                                     Union[KeboolaDeleteWhereSpec, None]] = {}
+    def download_endpoint(self, endpoint_name: str, tenant_ids: List[str], **kwargs):
+        logging.info(f"Fetching data for endpoint : {endpoint_name}")
+        page_number = 1
+        table_defs = TableDefinitionFactory(
+            endpoint_name, self).get_table_definitions()
+        tables_to_define: List[str] = []
+        delete_where_specs: Dict[str,
+                                 Union[KeboolaDeleteWhereSpec, None]] = {}
+        for tenant_id in tenant_ids:
             for accounting_object_list in self.client.get_accounting_object(
-                    endpoint, if_modified_since=modified_since):
-                tables_data = self.client.parse_accounting_object_list_into_tables(
-                    accounting_object_list)
+                    tenant_id=tenant_id, model_name=endpoint_name, **kwargs):
+                tables_data = TableDataFactory(
+                    accounting_object_list).get_table_definitions()
                 for table_name, table_data in tables_data.items():
                     table_def = table_defs[table_name]
                     if page_number == 1:
@@ -84,23 +107,21 @@ class Component(ComponentBase):
                     base_path = os.path.join(
                         self.tables_out_path, table_def.name)
                     os.makedirs(base_path, exist_ok=True)
-                    with open(os.path.join(base_path, f'{endpoint}_{page_number}.csv'), 'w') as f:
+                    with open(os.path.join(base_path,
+                                           f'{tenant_id}_{endpoint_name}_{page_number}.csv'), 'w') as f:
                         csv_writer = csv.DictWriter(
                             f, dialect='kbc', fieldnames=table_def.columns)
                         csv_writer.writerows(table_data.to_add)
                 page_number += 1
-            for table_name in tables_to_define:
-                table_def = table_defs[table_name]
-                delete_where_spec = delete_where_specs[table_name]
-                if delete_where_spec:
-                    table_def.set_delete_where_from_dict({'column': delete_where_spec.column,
-                                                          'operator': delete_where_spec.operator,
-                                                          'values': list(delete_where_spec.values)})
-                self.write_manifest(table_def)
 
-        self.client.force_refresh_token()
-        self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = self.client.get_xero_oauth2_token_dict()
-        self.write_state_file(self.new_state)
+        for table_name in tables_to_define:
+            table_def = table_defs[table_name]
+            delete_where_spec = delete_where_specs[table_name]
+            if delete_where_spec:
+                table_def.set_delete_where_from_dict({'column': delete_where_spec.column,
+                                                      'operator': delete_where_spec.operator,
+                                                      'values': list(delete_where_spec.values)})
+            self.write_manifest(table_def)
 
 
 """

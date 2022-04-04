@@ -49,7 +49,6 @@ def get_element_type_name(type_str: str) -> Union[str, None]:
 
 
 def resolve_attribute_type(type_name: str) -> str:
-    # TODO: make common with parse_accounting_object_into_tables method
     if type_name in TERMINAL_TYPE_MAPPING:
         r = type_name
     elif type_name.startswith("datetime"):

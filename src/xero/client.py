@@ -1,10 +1,8 @@
 from dataclasses import dataclass
 import inspect
-import logging
 from typing import Dict, Iterable, List
 
 from keboola.component.dao import OauthCredentials, TableDefinition
-from keboola.component.exceptions import UserException
 from keboola.component import ComponentBase
 
 from xero_python.identity import IdentityApi
@@ -12,16 +10,12 @@ from xero_python.accounting import AccountingApi
 from xero_python.api_client import ApiClient
 from xero_python.api_client.configuration import Configuration
 from xero_python.api_client.oauth2 import OAuth2Token
-from xero_python.models import BaseModel
 from xero_python.api_client.serializer import serialize
 
 from xero_python.exceptions.http_status_exceptions import OAuth2InvalidGrantError, HTTPStatusException
 
-from .table_definition_factory import TableDefinitionFactory
-from .table_data_factory import TableDataFactory
-
 # Always import utility to monkey patch BaseModel
-from .utility import TableData, XeroException, get_accounting_model
+from .utility import XeroException, get_accounting_model, EnhancedBaseModel
 
 
 @dataclass
@@ -31,10 +25,8 @@ class Table:
 
 
 class XeroClient:
-    def __init__(self, oauth_credentials: OauthCredentials, tenant_id: str = None,
-                 component: ComponentBase = None) -> None:
+    def __init__(self, oauth_credentials: OauthCredentials, component: ComponentBase = None) -> None:
         self._oauth_token_dict = oauth_credentials.data
-        self.tenant_id = tenant_id
         self.component = component
 
         oauth2_token_obj = OAuth2Token(client_id=oauth_credentials.appKey,
@@ -44,13 +36,15 @@ class XeroClient:
                                      oauth2_token_getter=self.get_xero_oauth2_token_dict,
                                      oauth2_token_saver=self._set_xero_oauth2_token_dict)
 
+        self._available_tenant_ids = None
+
     def get_xero_oauth2_token_dict(self) -> Dict:
         return self._oauth_token_dict
 
     def _set_xero_oauth2_token_dict(self, new_token: Dict) -> None:
         self._oauth_token_dict = new_token
 
-    def _get_tenants(self) -> List[str]:
+    def refresh_available_tenant_ids(self) -> List[str]:
         identity_api = IdentityApi(self._api_client)
         available_tenants = []
         try:
@@ -59,7 +53,7 @@ class XeroClient:
                 available_tenants.append(tenant.get("tenantId"))
         except OAuth2InvalidGrantError as oauth_err:
             raise XeroException(oauth_err) from oauth_err
-        return available_tenants
+        self._available_tenant_ids = available_tenants
 
     def force_refresh_token(self):
         try:
@@ -68,21 +62,14 @@ class XeroClient:
             raise XeroException(
                 "Failed to authenticate the client, please reauthorize the component") from http_error
 
-    def update_tenants(self):
-        tenants_available = self._get_tenants()
-        if self.tenant_id is None:
-            # TODO the previous component took all tenants and fetched all data for each tenant
-            self.tenant_id = tenants_available[0]
-            logging.warning(
-                f'Tenant ID not specified, using first available: {self.tenant_id}.')
-        else:
-            if self.tenant_id not in tenants_available:
-                raise UserException(f"Specified Tenant ID ({self.tenant_id}) is not accessible,"
-                                    " please, check if you granted sufficient credentials.")
+    def get_available_tenant_ids(self):
+        if not self._available_tenant_ids:
+            self.refresh_available_tenant_ids()
+        return self._available_tenant_ids
 
-    def get_accounting_object(self, model_name: str, **kwargs) -> Iterable[List[BaseModel]]:
+    def get_accounting_object(self, tenant_id: str, model_name: str, **kwargs) -> Iterable[List[EnhancedBaseModel]]:
         accounting_api = AccountingApi(self._api_client)
-        model: BaseModel = get_accounting_model(model_name)
+        model: EnhancedBaseModel = get_accounting_model(model_name)
         getter_name = model.get_download_method_name()
         if getter_name:
             getter = getattr(accounting_api, getter_name)
@@ -92,22 +79,16 @@ class XeroClient:
             if 'page' in getter_signature.parameters:
                 used_kwargs['page'] = 1
                 while True:
-                    accounting_object = getter(self.tenant_id, **used_kwargs)
+                    accounting_object = getter(tenant_id, **used_kwargs)
                     if accounting_object.is_empty_list():
                         break
                     yield accounting_object.to_list()
                     used_kwargs['page'] = used_kwargs['page'] + 1
             else:
-                yield getter(self.tenant_id, **used_kwargs).to_list()
+                yield getter(tenant_id, **used_kwargs).to_list()
         else:
             raise XeroException(
                 f"Requested model ({model_name}) getter function not found.")
 
     def get_serialized_accounting_object(self, model_name: str, **kwargs) -> Dict:
         return serialize(self.get_accounting_object(model_name, **kwargs))
-
-    def parse_accounting_object_list_into_tables(self, accounting_object_list: List[BaseModel]) -> Dict[str, TableData]:
-        return TableDataFactory(accounting_object_list).get_table_definitions()
-
-    def get_table_definitions(self, model_name: str) -> Dict[str, TableDefinition]:
-        return TableDefinitionFactory(model_name, self.component).get_table_definitions()
