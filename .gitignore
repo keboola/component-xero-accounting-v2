@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 .idea
 .vscode
+.devcontainer
 .DS_Store
 /example/.project
 /example/.pydevproject

@@ -8,7 +8,7 @@ from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 from keboola.component.interface import register_csv_dialect
 
-from xero import XeroClient
+from xero.client import XeroClient
 from xero.utility import KeboolaDeleteWhereSpec
 
 # configuration variables

@@ -4,7 +4,8 @@ import json
 
 from xero_python.api_client.serializer import serialize
 
-from .utility import XeroException, TERMINAL_TYPE_MAPPING, resolve_attribute_type, EnhancedBaseModel, KeboolaDeleteWhereSpec, TableData
+from .utility import XeroException, TERMINAL_TYPE_MAPPING, resolve_attribute_type,\
+    EnhancedBaseModel, KeboolaDeleteWhereSpec, TableData
 
 
 class TableDataFactory:
@@ -23,14 +24,15 @@ class TableDataFactory:
                                    parent_id_field_name: str = None, parent_id_field_value: str = None) -> None:
         for accounting_object in accounting_object_list:
             self._add_data_from_object(accounting_object, table_name_prefix=table_name_prefix,
-                                       parent_id_field_name=parent_id_field_name, parent_id_field_value=parent_id_field_value)
+                                       parent_id_field_name=parent_id_field_name,
+                                       parent_id_field_value=parent_id_field_value)
 
     def _add_data_from_object(self, accounting_object: EnhancedBaseModel, table_name_prefix: str = None,
                               parent_id_field_name: str = None, parent_id_field_value: str = None) -> None:
         table_name = accounting_object.__class__.__name__
         row_dict = {}
         id_field_value = accounting_object.get_id_value()
-        if id_field_value:
+        if isinstance(id_field_value, str) and len(id_field_value) > 0:
             id_field_name = accounting_object.get_id_field_name()
         else:
             id_field_name = f'{table_name}ID'
@@ -38,7 +40,7 @@ class TableDataFactory:
                                                     ).encode('utf-8')).hexdigest()
             row_dict[id_field_name] = id_field_value
         if parent_id_field_name:
-            if parent_id_field_value:
+            if parent_id_field_value is not None:
                 table_name = f'{table_name_prefix}_{table_name}'
                 row_dict[parent_id_field_name] = parent_id_field_value
             else:
@@ -46,11 +48,12 @@ class TableDataFactory:
                     "Parent object must have defined ID if specified.")
         for attribute_name, attribute_type_name in accounting_object.openapi_types.items():
             attribute_value = getattr(accounting_object, attribute_name)
-            if attribute_value:
+            if attribute_value is not None:
                 field_name = accounting_object.get_field_name(attribute_name)
-                row_dict = row_dict | self._get_data_from_attribute(
+                attribute_dict = self._get_data_from_attribute(
                     value=attribute_value, type_name=attribute_type_name, field_name=field_name,
                     table_name=table_name, id_field_name=id_field_name, id_field_value=id_field_value)
+                row_dict = row_dict | attribute_dict
         if len(row_dict) > 0:
             table_data = self._tables_data.get(table_name)
             if table_data is None:
@@ -62,12 +65,14 @@ class TableDataFactory:
                 self._tables_data[table_name] = table_data
             table_data.to_add.append(row_dict)
             if parent_id_field_name:
-                table_data.to_delete.values.add(id_field_value)
+                table_data.to_delete.values.add(parent_id_field_value)
 
     def _get_data_from_attribute(self, value, type_name: str, field_name: str, table_name: str,
                                  id_field_name: str, id_field_value: str) -> Dict[str, Any]:
         resolved_type = resolve_attribute_type(type_name)
         if resolved_type == 'list':
+            if len(value) == 0:
+                return {}
             for element in value:
                 element_type_name = element.__class__.__name__
                 element_resolved_type_name = resolve_attribute_type(
@@ -76,9 +81,10 @@ class TableDataFactory:
                     self._add_data_from_object(element, table_name_prefix=table_name,
                                                parent_id_field_name=id_field_name, parent_id_field_value=id_field_value)
                     return {}
-                elif element:
+                elif element is not None:
                     raise XeroException(
-                        f'Unexpected type encountered: {type_name(element)} within list in {field_name} field within object'
+                        f'Unexpected type encountered: {type_name(element)}'
+                        f' within list in {field_name} field within object'
                         f' of type {table_name}.')
         elif resolved_type == 'downloadable_object':
             sub_id_field_name = value.get_id_field_name()
@@ -94,7 +100,7 @@ class TableDataFactory:
         flattened_struct = {}
         for struct_attr_name, struct_attr_type_name in struct.openapi_types.items():
             struct_attr_val = getattr(struct, struct_attr_name)
-            if struct_attr_val:
+            if struct_attr_val is not None:
                 resolved_type = resolve_attribute_type(struct_attr_type_name)
                 struct_field_name = struct.get_field_name(struct_attr_name)
                 field_name_inside_parent = f'{prefix}_{struct_field_name}'
