@@ -28,18 +28,17 @@ REQUIRED_IMAGE_PARS = []
 
 
 class Component(ComponentBase):
-    def __init__(self):
+    def __init__(self, data_path_override: str = None):
         self.client = None
         self.tables = {}
         self._writer_cache = dict()
         self.new_state = {}
-        super().__init__()
+        super().__init__(data_path_override=data_path_override,
+                         required_parameters=REQUIRED_PARAMETERS,
+                         required_image_parameters=REQUIRED_IMAGE_PARS)
         register_csv_dialect()
 
     def run(self):
-        self.validate_configuration_parameters(REQUIRED_PARAMETERS)
-        self.validate_image_parameters(REQUIRED_IMAGE_PARS)
-
         params: Dict = self.configuration.parameters
         modified_since = params.get(KEY_MODIFIED_SINCE)
         if modified_since:
