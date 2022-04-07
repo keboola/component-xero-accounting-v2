@@ -17,6 +17,8 @@ from xero.table_definition_factory import TableDefinitionFactory
 KEY_MODIFIED_SINCE = 'modified_since'
 KEY_ENDPOINTS = 'endpoints'
 KEY_TENANT_IDS = 'tenant_ids'
+KEY_LOADING_OPTIONS = 'loading_options'
+KEY_INCREMENTAL_OUTPUT = 'incremental_output'
 
 KEY_STATE_OAUTH_TOKEN_DICT = "#oauth_token_dict"
 KEY_STATE_ENDPOINT_COLUMNS = "endpoint_columns"
@@ -42,6 +44,9 @@ class Component(ComponentBase):
         params: Dict = self.configuration.parameters
 
         endpoints: List[str] = params[KEY_ENDPOINTS]
+
+        loading_options: Dict = params.get(KEY_LOADING_OPTIONS)
+        self.incremental_load = loading_options.get(KEY_INCREMENTAL_OUTPUT, False) if loading_options else False
 
         modified_since = params.get(KEY_MODIFIED_SINCE)
         if modified_since:
@@ -118,7 +123,8 @@ class Component(ComponentBase):
         for table_name in tables_to_define:
             table_def = table_defs[table_name]
             delete_where_spec = delete_where_specs[table_name]
-            if delete_where_spec:
+            table_def.incremental = self.incremental_load
+            if delete_where_spec and table_def.incremental:
                 table_def.set_delete_where_from_dict({'column': delete_where_spec.column,
                                                       'operator': delete_where_spec.operator,
                                                       'values': list(delete_where_spec.values)})
