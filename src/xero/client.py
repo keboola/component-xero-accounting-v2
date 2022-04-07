@@ -3,7 +3,6 @@ import inspect
 from typing import Dict, Iterable, List
 
 from keboola.component.dao import OauthCredentials, TableDefinition
-from keboola.component import ComponentBase
 
 from xero_python.identity import IdentityApi
 from xero_python.accounting import AccountingApi
@@ -25,9 +24,8 @@ class Table:
 
 
 class XeroClient:
-    def __init__(self, oauth_credentials: OauthCredentials, component: ComponentBase = None) -> None:
+    def __init__(self, oauth_credentials: OauthCredentials) -> None:
         self._oauth_token_dict = oauth_credentials.data
-        self.component = component
 
         oauth2_token_obj = OAuth2Token(client_id=oauth_credentials.appKey,
                                        client_secret=oauth_credentials.appSecret)

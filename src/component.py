@@ -40,11 +40,14 @@ class Component(ComponentBase):
 
     def run(self):
         params: Dict = self.configuration.parameters
+
+        endpoints: List[str] = params[KEY_ENDPOINTS]
+
         modified_since = params.get(KEY_MODIFIED_SINCE)
         if modified_since:
             modified_since = dateparser.parse(modified_since).isoformat()
-        endpoints = params.get(KEY_ENDPOINTS)
-        tenant_ids_to_download = params.get(KEY_TENANT_IDS)
+        tenant_ids_to_download: Union[List[str],
+                                      None] = params.get(KEY_TENANT_IDS)
 
         oauth_credentials = self.configuration.oauth_credentials
 
@@ -53,14 +56,13 @@ class Component(ComponentBase):
         if oauth_token_dict and oauth_token_dict['expires_at'] > oauth_credentials.data['expires_at']:
             oauth_credentials.data = oauth_token_dict
 
-        self.client = XeroClient(
-            oauth_credentials, component=self)
+        self.client = XeroClient(oauth_credentials)
 
         # TODO: state should be saved even on subsequent run failure
         self.refresh_and_save_state()
 
         available_tenant_ids = self.client.get_available_tenant_ids()
-        if tenant_ids_to_download is None:
+        if not tenant_ids_to_download:
             tenant_ids_to_download = available_tenant_ids
             logging.warning(
                 f'Tenant IDs not specified, using all available: {available_tenant_ids}.')
