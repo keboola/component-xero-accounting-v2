@@ -1,4 +1,4 @@
-FROM python:3.8.6-slim
+FROM python:3.10-slim
 ENV PYTHONIOENCODING utf-8
 
 # install gcc to be able to build packages - e.g. required by regex, dateparser, also required for pandas

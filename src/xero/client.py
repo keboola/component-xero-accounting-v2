@@ -1,74 +1,92 @@
-import time
-
-from requests import HTTPError
+from dataclasses import dataclass
+import inspect
 from typing import Dict, Iterable, List
 
-from keboola.http_client import HttpClient
+from keboola.component.dao import OauthCredentials, TableDefinition
+
 from xero_python.identity import IdentityApi
 from xero_python.accounting import AccountingApi
-from xero_python.api_client import ApiClient, serialize
-from xero_python.api_client.configuration import Configuration, OAuth2Token
+from xero_python.api_client import ApiClient
+from xero_python.api_client.configuration import Configuration
+from xero_python.api_client.oauth2 import OAuth2Token
+from xero_python.api_client.serializer import serialize
 
-TOKEN_URL = "https://identity.xero.com/connect/token?="
+from xero_python.exceptions.http_status_exceptions import OAuth2InvalidGrantError, HTTPStatusException
+
+# Always import utility to monkey patch BaseModel
+from .utility import XeroException, get_accounting_model, EnhancedBaseModel
 
 
-class XeroClientException(Exception):
-    pass
+@dataclass
+class Table:
+    data: List[Dict]
+    table_definition: TableDefinition
 
 
-class XeroClient(HttpClient):
-    def __init__(self, client_id: str, client_secret: str, refresh_token: str) -> None:
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.refresh_token = refresh_token
-        self.tenant_ids = []
-        self.jwt_token = {}
+class XeroClient:
+    def __init__(self, oauth_credentials: OauthCredentials) -> None:
+        self._oauth_token_dict = oauth_credentials.data
 
-        oauth_token = OAuth2Token(client_id=client_id, client_secret=client_secret)
-        self.xero_client = ApiClient(Configuration(oauth2_token=oauth_token))
-        self.api_instance = None
-        super().__init__(TOKEN_URL)
+        oauth2_token_obj = OAuth2Token(client_id=oauth_credentials.appKey,
+                                       client_secret=oauth_credentials.appSecret)
+        oauth2_token_obj.update_token(**self._oauth_token_dict)
+        self._api_client = ApiClient(Configuration(oauth2_token=oauth2_token_obj),
+                                     oauth2_token_getter=self.get_xero_oauth2_token_dict,
+                                     oauth2_token_saver=self._set_xero_oauth2_token_dict)
 
-    def login(self) -> None:
-        """
-            Set api client oauth2_token_getter to method for refreshing the token
-            Init the api instance for the Accounting API
-            Fetch all tenants to get data for
-        """
-        self.jwt_token = self.xero_client.oauth2_token_getter(self._obtain_xero_oauth2_token)
-        self.xero_client.oauth2_token_saver(self._store_xero_oauth2_token)
-        self.api_instance = AccountingApi(self.xero_client)
-        self.tenant_ids = self._get_tenants()
+        self._available_tenant_ids = None
 
-    def _obtain_xero_oauth2_token(self) -> Dict:
-        new_token = self._update_refresh_token()
-        new_token["expires_at"] = time.time() + 1800
-        return new_token
+    def get_xero_oauth2_token_dict(self) -> Dict:
+        return self._oauth_token_dict
 
-    def _update_refresh_token(self) -> Dict:
-        payload = {'grant_type': 'refresh_token',
-                   'refresh_token': self.refresh_token,
-                   'client_id': self.client_id,
-                   'client_secret': self.client_secret}
-        try:
-            return self.post(data=payload)
-        except HTTPError as http_error:
-            raise XeroClientException("Failed to authenticate, invalid refresh token. "
-                                      "Re-authenticate the component") from http_error
+    def _set_xero_oauth2_token_dict(self, new_token: Dict) -> None:
+        self._oauth_token_dict = new_token
 
-    def _store_xero_oauth2_token(self, new_token: Dict) -> None:
-        self.jwt_token = new_token
-
-    def _get_tenants(self) -> List[str]:
-        identity_api = IdentityApi(self.xero_client)
+    def refresh_available_tenant_ids(self) -> List[str]:
+        identity_api = IdentityApi(self._api_client)
         available_tenants = []
-        for connection in identity_api.get_connections():
-            tenant = serialize(connection)
-            available_tenants.append(tenant.get("tenantId"))
+        try:
+            for connection in identity_api.get_connections():
+                tenant = serialize(connection)
+                available_tenants.append(tenant.get("tenantId"))
+        except OAuth2InvalidGrantError as oauth_err:
+            raise XeroException(oauth_err) from oauth_err
+        self._available_tenant_ids = available_tenants
 
-        return available_tenants
+    def force_refresh_token(self):
+        try:
+            self._api_client.refresh_oauth2_token()
+        except HTTPStatusException as http_error:
+            raise XeroException(
+                "Failed to authenticate the client, please reauthorize the component") from http_error
 
-    def get_accounts(self, last_modified: str = None, **kwargs) -> Iterable:
-        for tenant_id in self.tenant_ids:
-            api_response = self.api_instance.get_accounts(tenant_id, last_modified, **kwargs)
-            yield api_response
+    def get_available_tenant_ids(self):
+        if not self._available_tenant_ids:
+            self.refresh_available_tenant_ids()
+        return self._available_tenant_ids
+
+    def get_accounting_object(self, tenant_id: str, model_name: str, **kwargs) -> Iterable[List[EnhancedBaseModel]]:
+        accounting_api = AccountingApi(self._api_client)
+        model: EnhancedBaseModel = get_accounting_model(model_name)
+        getter_name = model.get_download_method_name()
+        if getter_name:
+            getter = getattr(accounting_api, getter_name)
+            getter_signature = inspect.signature(getter)
+            used_kwargs = {k: v for k, v in kwargs.items()
+                           if k in getter_signature.parameters and v is not None}
+            if 'page' in getter_signature.parameters:
+                used_kwargs['page'] = 1
+                while True:
+                    accounting_object = getter(tenant_id, **used_kwargs)
+                    if accounting_object.is_empty_list():
+                        break
+                    yield accounting_object.to_list()
+                    used_kwargs['page'] = used_kwargs['page'] + 1
+            else:
+                yield getter(tenant_id, **used_kwargs).to_list()
+        else:
+            raise XeroException(
+                f"Requested model ({model_name}) getter function not found.")
+
+    def get_serialized_accounting_object(self, model_name: str, **kwargs) -> Dict:
+        return serialize(self.get_accounting_object(model_name, **kwargs))
