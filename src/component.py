@@ -7,6 +7,7 @@ import csv
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
 from keboola.component.interface import register_csv_dialect
+from keboola.utils.helpers import comma_separated_values_to_list
 
 from xero.client import XeroClient
 from xero.utility import KeboolaDeleteWhereSpec
@@ -17,8 +18,8 @@ from xero.table_definition_factory import TableDefinitionFactory
 KEY_MODIFIED_SINCE = 'modified_since'
 KEY_ENDPOINTS = 'endpoints'
 KEY_TENANT_IDS = 'tenant_ids'
-KEY_LOADING_OPTIONS = 'loading_options'
-KEY_INCREMENTAL_OUTPUT = 'incremental_output'
+KEY_DESTINATION_OPTIONS = 'destination'
+KEY_LOAD_TYPE = 'load_type'
 
 KEY_STATE_OAUTH_TOKEN_DICT = "#oauth_token_dict"
 KEY_STATE_ENDPOINT_COLUMNS = "endpoint_columns"
@@ -31,28 +32,28 @@ REQUIRED_IMAGE_PARS = []
 
 class Component(ComponentBase):
     def __init__(self, data_path_override: str = None):
+        self.incremental_load = None
         self.client = None
         self.tables = {}
-        self._writer_cache = dict()
+        self._writer_cache = {}
         self.new_state = {}
-        super().__init__(data_path_override=data_path_override,
-                         required_parameters=REQUIRED_PARAMETERS,
+        super().__init__(data_path_override=data_path_override, required_parameters=REQUIRED_PARAMETERS,
                          required_image_parameters=REQUIRED_IMAGE_PARS)
+
         register_csv_dialect()
 
     def run(self):
         params: Dict = self.configuration.parameters
-
         endpoints: List[str] = params[KEY_ENDPOINTS]
 
-        loading_options: Dict = params.get(KEY_LOADING_OPTIONS)
-        self.incremental_load = loading_options.get(KEY_INCREMENTAL_OUTPUT, False) if loading_options else False
+        destination = params.get(KEY_DESTINATION_OPTIONS, {})
+        load_type = destination.get(KEY_LOAD_TYPE, "full_load")
+        self.incremental_load = load_type == "incremental_load"
 
         modified_since = params.get(KEY_MODIFIED_SINCE)
         if modified_since:
             modified_since = dateparser.parse(modified_since).isoformat()
-        tenant_ids_to_download: Union[List[str],
-                                      None] = params.get(KEY_TENANT_IDS)
+        tenant_ids_to_download: Union[List[str], None] = comma_separated_values_to_list(params.get(KEY_TENANT_IDS))
 
         oauth_credentials = self.configuration.oauth_credentials
 
@@ -98,10 +99,9 @@ class Component(ComponentBase):
         delete_where_specs: Dict[str,
                                  Union[KeboolaDeleteWhereSpec, None]] = {}
         for tenant_id in tenant_ids:
-            for accounting_object_list in self.client.get_accounting_object(
-                    tenant_id=tenant_id, model_name=endpoint_name, **kwargs):
-                tables_data = TableDataFactory(
-                    accounting_object_list).get_table_definitions()
+            for accounting_object_list in self.client.get_accounting_object(tenant_id=tenant_id,
+                                                                            model_name=endpoint_name, **kwargs):
+                tables_data = TableDataFactory(accounting_object_list).get_table_definitions()
                 for table_name, table_data in tables_data.items():
                     table_def = table_defs[table_name]
                     if page_number == 1:
@@ -110,13 +110,10 @@ class Component(ComponentBase):
                     elif delete_where_specs[table_name]:
                         delete_where_specs[table_name].values.update(
                             table_data.to_delete.values)
-                    base_path = os.path.join(
-                        self.tables_out_path, table_def.name)
+                    base_path = os.path.join(self.tables_out_path, table_def.name)
                     os.makedirs(base_path, exist_ok=True)
-                    with open(os.path.join(base_path,
-                                           f'{tenant_id}_{endpoint_name}_{page_number}.csv'), 'w') as f:
-                        csv_writer = csv.DictWriter(
-                            f, dialect='kbc', fieldnames=table_def.columns)
+                    with open(os.path.join(base_path, f'{tenant_id}_{endpoint_name}_{page_number}.csv'), 'w') as f:
+                        csv_writer = csv.DictWriter(f, dialect='kbc', fieldnames=table_def.columns)
                         csv_writer.writerows(table_data.to_add)
                 page_number += 1
 

@@ -4,7 +4,7 @@ import json
 
 from xero_python.api_client.serializer import serialize
 
-from .utility import XeroException, TERMINAL_TYPE_MAPPING, resolve_attribute_type,\
+from .utility import XeroException, TERMINAL_TYPE_MAPPING, resolve_attribute_type, \
     EnhancedBaseModel, KeboolaDeleteWhereSpec, TableData
 
 
@@ -35,17 +35,15 @@ class TableDataFactory:
         if isinstance(id_field_value, str) and len(id_field_value) > 0:
             id_field_name = accounting_object.get_id_field_name()
         else:
-            id_field_name = f'{table_name}ID'
-            id_field_value = hashlib.md5(json.dumps(serialize(accounting_object), sort_keys=True
-                                                    ).encode('utf-8')).hexdigest()
+            id_field_name = f'{table_name}ID_Generated'
+            id_field_value = hashlib.md5(
+                json.dumps(serialize(accounting_object), sort_keys=True).encode('utf-8')).hexdigest()
             row_dict[id_field_name] = id_field_value
         if parent_id_field_name:
-            if parent_id_field_value is not None:
-                table_name = f'{table_name_prefix}_{table_name}'
-                row_dict[parent_id_field_name] = parent_id_field_value
-            else:
-                raise XeroException(
-                    "Parent object must have defined ID if specified.")
+            if parent_id_field_value is None:
+                raise XeroException("Parent object must have defined ID if specified.")
+            table_name = f'{table_name_prefix}_{table_name}'
+            row_dict[parent_id_field_name] = parent_id_field_value
         for attribute_name, attribute_type_name in accounting_object.openapi_types.items():
             attribute_value = getattr(accounting_object, attribute_name)
             if attribute_value is not None:
