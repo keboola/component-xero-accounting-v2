@@ -35,7 +35,7 @@ class TableDataFactory:
         if isinstance(id_field_value, str) and len(id_field_value) > 0:
             id_field_name = accounting_object.get_id_field_name()
         else:
-            id_field_name = f'{table_name}ID_Generated'
+            id_field_name = f'{table_name}ID'
             id_field_value = hashlib.md5(
                 json.dumps(serialize(accounting_object), sort_keys=True).encode('utf-8')).hexdigest()
             row_dict[id_field_name] = id_field_value
