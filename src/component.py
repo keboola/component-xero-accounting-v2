@@ -58,7 +58,11 @@ class Component(ComponentBase):
 
         self._init_client()
 
-        available_tenant_ids = self.client.get_available_tenant_ids()
+        try:
+            available_tenant_ids = self.client.get_available_tenant_ids()
+        except XeroException as xero_exc:
+            raise UserException from xero_exc
+
         if not tenant_ids_to_download:
             tenant_ids_to_download = available_tenant_ids
             logging.warning(
@@ -135,14 +139,18 @@ class Component(ComponentBase):
         else:
             logging.info("Authorizing Client from oauth")
             self._init_client_from_config()
-
-        self.refresh_token_and_save_state()
         logging.info("Client Authorized")
 
     def _init_client_from_state(self, state_authorization_params):
         oauth_credentials = self.configuration.oauth_credentials
         oauth_credentials.data = self._load_state_oauth(state_authorization_params)
         self.client = XeroClient(oauth_credentials)
+        try:
+            self.refresh_token_and_save_state()
+            self.client.get_available_tenant_ids()
+        except (UserException, XeroException):
+            logging.warning("Authorizing Client from state failed, trying from oauth")
+            self._init_client_from_config()
 
     @staticmethod
     def _load_state_oauth(state_authorization_params):
@@ -158,6 +166,11 @@ class Component(ComponentBase):
         if isinstance(oauth_credentials.data.get("scope"), str):
             oauth_credentials.data["scope"] = oauth_credentials.data["scope"].split(" ")
         self.client = XeroClient(oauth_credentials)
+        try:
+            self.refresh_token_and_save_state()
+            self.client.get_available_tenant_ids()
+        except (UserException, XeroException) as xero_exception:
+            raise UserException(xero_exception) from xero_exception
 
     @staticmethod
     def _is_valid_state_auth(state_authorization_params):

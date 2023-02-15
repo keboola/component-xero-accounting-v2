@@ -49,7 +49,7 @@ class XeroClient:
             for connection in identity_api.get_connections():
                 tenant = serialize(connection)
                 available_tenants.append(tenant.get("tenantId"))
-        except OAuth2InvalidGrantError as oauth_err:
+        except (OAuth2InvalidGrantError, HTTPStatusException) as oauth_err:
             raise XeroException(oauth_err) from oauth_err
         self._available_tenant_ids = available_tenants
 
