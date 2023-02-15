@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Dict, List, Union
 import dateparser
@@ -10,7 +11,7 @@ from keboola.component.interface import register_csv_dialect
 from keboola.utils.helpers import comma_separated_values_to_list
 
 from xero.client import XeroClient
-from xero.utility import KeboolaDeleteWhereSpec
+from xero.utility import KeboolaDeleteWhereSpec, XeroException
 from xero.table_data_factory import TableDataFactory
 from xero.table_definition_factory import TableDefinitionFactory
 
@@ -55,17 +56,7 @@ class Component(ComponentBase):
             modified_since = dateparser.parse(modified_since).isoformat()
         tenant_ids_to_download: Union[List[str], None] = comma_separated_values_to_list(params.get(KEY_TENANT_IDS))
 
-        oauth_credentials = self.configuration.oauth_credentials
-
-        state = self.get_state_file()
-        oauth_token_dict = state.get(KEY_STATE_OAUTH_TOKEN_DICT)
-        if oauth_token_dict and oauth_token_dict['expires_at'] > oauth_credentials.data['expires_at']:
-            oauth_credentials.data = oauth_token_dict
-
-        self.client = XeroClient(oauth_credentials)
-
-        # TODO: state should be saved even on subsequent run failure
-        self.refresh_and_save_state()
+        self._init_client()
 
         available_tenant_ids = self.client.get_available_tenant_ids()
         if not tenant_ids_to_download:
@@ -83,11 +74,16 @@ class Component(ComponentBase):
         for endpoint in endpoints:
             self.download_endpoint(endpoint_name=endpoint, tenant_ids=tenant_ids_to_download,
                                    if_modified_since=modified_since)
-        self.refresh_and_save_state()
+        self.refresh_token_and_save_state()
 
-    def refresh_and_save_state(self):
-        self.client.force_refresh_token()
-        self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = self.client.get_xero_oauth2_token_dict()
+    def refresh_token_and_save_state(self):
+        try:
+            self.client.force_refresh_token()
+        except XeroException as xero_exc:
+            raise UserException("Failed to authorize the component. Please reauthorize the component. "
+                                "\n Due to the functioning of the XERO authorization, if a component fails,"
+                                " the component must be reauthorized.") from xero_exc
+        self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = json.dumps(self.client.get_xero_oauth2_token_dict())
         self.write_state_file(self.new_state)
 
     def download_endpoint(self, endpoint_name: str, tenant_ids: List[str], **kwargs):
@@ -127,6 +123,50 @@ class Component(ComponentBase):
                                                       'values': list(delete_where_spec.values)})
             self.write_manifest(table_def)
 
+    def _init_client(self):
+        logging.info("Authorizing Client")
+
+        state = self.get_state_file()
+        state_authorization_params = state.get(KEY_STATE_OAUTH_TOKEN_DICT)
+
+        if self._is_valid_state_auth(state_authorization_params):
+            logging.info("Authorizing Client from state")
+            self._init_client_from_state(state_authorization_params)
+        else:
+            logging.info("Authorizing Client from oauth")
+            self._init_client_from_config()
+
+        self.refresh_token_and_save_state()
+        logging.info("Client Authorized")
+
+    def _init_client_from_state(self, state_authorization_params):
+        oauth_credentials = self.configuration.oauth_credentials
+        oauth_credentials.data = self._load_state_oauth(state_authorization_params)
+        self.client = XeroClient(oauth_credentials)
+
+    @staticmethod
+    def _load_state_oauth(state_authorization_params):
+        if isinstance(state_authorization_params, str):
+            return json.loads(state_authorization_params)
+        elif isinstance(state_authorization_params, dict):
+            return state_authorization_params
+        else:
+            raise UserException("Invalid state, please contact support")
+
+    def _init_client_from_config(self):
+        oauth_credentials = self.configuration.oauth_credentials
+        if isinstance(oauth_credentials.data.get("scope"), str):
+            oauth_credentials.data["scope"] = oauth_credentials.data["scope"].split(" ")
+        self.client = XeroClient(oauth_credentials)
+
+    @staticmethod
+    def _is_valid_state_auth(state_authorization_params):
+        if state_authorization_params:
+            if "access_token" in state_authorization_params and "scope" in state_authorization_params \
+                    and "expires_in" in state_authorization_params and "token_type" in state_authorization_params:
+                return True
+        return False
+
 
 """
         Main entrypoint
@@ -136,6 +176,8 @@ if __name__ == "__main__":
         comp = Component()
         comp.execute_action()
     except UserException as exc:
+        logging.warning("During the component fail, the authorization is invalidated due to the functioning of the "
+                        "XERO authorization. If The authroization is invalid, you must reauthorize the component")
         logging.exception(exc)
         exit(1)
     except Exception as exc:
