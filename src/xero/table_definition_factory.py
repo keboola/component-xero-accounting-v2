@@ -8,8 +8,7 @@ from .utility import KeboolaTypeSpec, XeroException, get_accounting_model, get_e
 
 class TableDefinitionFactory:
     def __init__(self, input_model_name: str, component: ComponentBase) -> None:
-        self.input_model: EnhancedBaseModel = get_accounting_model(
-            input_model_name)
+        self.input_model: EnhancedBaseModel = get_accounting_model(input_model_name)
         self.root_model: EnhancedBaseModel = self.input_model.get_contained_model()
         self.component = component
 
@@ -42,8 +41,7 @@ class TableDefinitionFactory:
                 table_name_prefix=table_name, parent_id_field_name=id_field_name)
         if len(field_types) > 0:
             self._table_defs[table_name] = self.component.create_out_table_definition(name=f'{table_name}.csv',
-                                                                                      primary_key=list(
-                                                                                          primary_key),
+                                                                                      primary_key=list(primary_key),
                                                                                       columns=list(field_types.keys()))
             for _field_name, field_type in field_types.items():
                 self._table_defs[table_name].table_metadata.add_column_data_type(column=_field_name,

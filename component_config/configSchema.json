@@ -35,7 +35,8 @@
           "RepeatingInvoices",
           "TaxRates",
           "Users",
-          "Contacts"
+          "Contacts",
+          "Invoices"
         ]
       },
       "format": "checkbox",

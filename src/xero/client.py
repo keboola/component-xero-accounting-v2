@@ -42,7 +42,7 @@ class XeroClient:
     def _set_xero_oauth2_token_dict(self, new_token: Dict) -> None:
         self._oauth_token_dict = new_token
 
-    def refresh_available_tenant_ids(self) -> List[str]:
+    def refresh_available_tenant_ids(self) -> None:
         identity_api = IdentityApi(self._api_client)
         available_tenants = []
         try:

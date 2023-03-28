@@ -1,6 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, List, Set, Union, Callable, Dict
+from typing import Any, List, Union, Callable
 from keboola.component.dao import SupportedDataTypes
 from xero_python.models import BaseModel
 from xero_python.accounting import AccountingApi
@@ -16,19 +16,6 @@ class XeroException(Exception):
 class KeboolaTypeSpec:
     type: SupportedDataTypes
     length: str = None
-
-
-@dataclass
-class KeboolaDeleteWhereSpec:
-    column: str
-    values: Set[str] = field(default_factory=lambda: set())
-    operator: str = 'eq'
-
-
-@dataclass
-class TableData:
-    to_add: List[Dict] = field(default_factory=lambda: [])
-    to_delete: Union[KeboolaDeleteWhereSpec, None] = None
 
 
 # Configuration variables
@@ -79,7 +66,9 @@ def add_as_a_method_of(cls):
     def decorator(func):
         setattr(cls, func.__name__, func)
         return func
+
     return decorator
+
 
 # Adding methods to BaseModel class (monkey patching)
 
