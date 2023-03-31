@@ -36,7 +36,8 @@
           "TaxRates",
           "Users",
           "Contacts",
-          "Invoices"
+          "Invoices",
+          "BankTransactions"
         ]
       },
       "format": "checkbox",
