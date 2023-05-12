@@ -37,7 +37,8 @@
           "Users",
           "Contacts",
           "Invoices",
-          "BankTransactions"
+          "BankTransactions",
+          "Journals"
         ]
       },
       "format": "checkbox",
