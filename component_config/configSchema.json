@@ -41,7 +41,7 @@
           "Journals"
         ]
       },
-      "format": "checkbox",
+      "format": "select",
       "uniqueItems": true,
       "propertyOrder": 20
     },
