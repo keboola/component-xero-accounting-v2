@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 import inspect
-import logging
 from typing import Dict, Iterable, List
 
 from keboola.component.dao import OauthCredentials, TableDefinition
