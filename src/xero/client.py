@@ -82,6 +82,14 @@ class XeroClient:
                         break
                     yield accounting_object.to_list()
                     used_kwargs['page'] = used_kwargs['page'] + 1
+            elif 'offset' in getter_signature.parameters:
+                used_kwargs['offset'] = 0
+                while True:
+                    accounting_object = getter(tenant_id, **used_kwargs)
+                    if accounting_object.is_empty_list():
+                        break
+                    yield accounting_object.to_list()
+                    used_kwargs['offset'] = used_kwargs['offset'] + 100
             else:
                 yield getter(tenant_id, **used_kwargs).to_list()
         else:

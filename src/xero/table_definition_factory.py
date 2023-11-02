@@ -2,8 +2,8 @@ from typing import Union, Dict
 from keboola.component import ComponentBase
 from keboola.component.dao import TableDefinition
 
-from .utility import KeboolaTypeSpec, XeroException, get_accounting_model, get_element_type_name,\
-    TERMINAL_TYPE_MAPPING, resolve_attribute_type, EnhancedBaseModel
+from .utility import (KeboolaTypeSpec, XeroException, get_accounting_model, get_element_type_name,
+                      TERMINAL_TYPE_MAPPING, resolve_attribute_type, EnhancedBaseModel)
 
 
 class TableDefinitionFactory:
