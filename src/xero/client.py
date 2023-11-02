@@ -74,11 +74,12 @@ class XeroClient:
             getter_signature = inspect.signature(getter)
             used_kwargs = {k: v for k, v in kwargs.items()
                            if k in getter_signature.parameters and v is not None}
+            print(f"used kwargs: {used_kwargs}")
             if 'page' in getter_signature.parameters:
                 used_kwargs['page'] = 1
                 while True:
                     accounting_object = getter(tenant_id, **used_kwargs)
-                    print(accounting_object)
+                    print(f"accounting object: {accounting_object}")
                     if accounting_object.is_empty_list():
                         break
                     yield accounting_object.to_list()
