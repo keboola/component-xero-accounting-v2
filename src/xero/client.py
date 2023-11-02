@@ -84,7 +84,7 @@ class XeroClient:
                         break
                     yield accounting_object.to_list()
                     used_kwargs['page'] = used_kwargs['page'] + 1
-            if 'offset' in getter_signature.parameters:
+            elif 'offset' in getter_signature.parameters:
                 used_kwargs['offset'] = 0
                 while True:
                     accounting_object = getter(tenant_id, **used_kwargs)
