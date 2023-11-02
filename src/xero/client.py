@@ -78,6 +78,7 @@ class XeroClient:
                 used_kwargs['page'] = 1
                 while True:
                     accounting_object = getter(tenant_id, **used_kwargs)
+                    print(accounting_object)
                     if accounting_object.is_empty_list():
                         break
                     yield accounting_object.to_list()
