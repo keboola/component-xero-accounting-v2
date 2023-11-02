@@ -66,7 +66,6 @@ class Component(ComponentBase):
     def refresh_token_and_save_state(self) -> None:
         self._refresh_client_token()
         self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = json.dumps(self.client.get_xero_oauth2_token_dict())
-        print(self.new_state)
         self.write_state_file(self.new_state)
 
     def _refresh_client_token(self) -> None:
@@ -129,7 +128,6 @@ class Component(ComponentBase):
 
     def _init_client_from_state(self, state_authorization_params: Union[str, Dict]) -> None:
         oauth_credentials = self.configuration.oauth_credentials
-        print(oauth_credentials)
         oauth_credentials.data = self._load_state_oauth(state_authorization_params)
         self.client = XeroClient(oauth_credentials)
         try:
