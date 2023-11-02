@@ -72,7 +72,9 @@ class XeroClient:
         getter_name = model.get_download_method_name()
         if getter_name:
             getter = getattr(accounting_api, getter_name)
+            logging.info(f"getter: {getter}")
             getter_signature = inspect.signature(getter)
+            logging.info(f"getter signature: {getter_signature}")
             used_kwargs = {k: v for k, v in kwargs.items()
                            if k in getter_signature.parameters and v is not None}
             logging.info(f"used kwargs: {used_kwargs}")
@@ -80,7 +82,6 @@ class XeroClient:
                 used_kwargs['page'] = 1
                 while True:
                     accounting_object = getter(tenant_id, **used_kwargs)
-                    logging.info(f"accounting object: {accounting_object}")
                     if accounting_object.is_empty_list():
                         break
                     yield accounting_object.to_list()
