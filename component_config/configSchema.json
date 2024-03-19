@@ -38,7 +38,8 @@
           "Contacts",
           "Invoices",
           "BankTransactions",
-          "Journals"
+          "Journals",
+          "ManualJournals"
         ]
       },
       "format": "select",
