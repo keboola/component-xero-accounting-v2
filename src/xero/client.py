@@ -16,6 +16,8 @@ from xero_python.exceptions.http_status_exceptions import OAuth2InvalidGrantErro
 # Always import utility to monkey patch BaseModel
 from .utility import XeroException, get_accounting_model, EnhancedBaseModel
 
+from ratelimit import limits, sleep_and_retry
+
 
 @dataclass
 class Table:
@@ -70,7 +72,7 @@ class XeroClient:
         model: EnhancedBaseModel = get_accounting_model(model_name)
         getter_name = model.get_download_method_name()
         if getter_name:
-            getter = getattr(accounting_api, getter_name)
+            getter = sleep_and_retry(limits(calls=60, period=60)(getattr(accounting_api, getter_name)))
             getter_signature = inspect.signature(getter)
             used_kwargs = {k: v for k, v in kwargs.items()
                            if k in getter_signature.parameters and v is not None}
