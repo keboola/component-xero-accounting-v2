@@ -72,7 +72,7 @@ class XeroClient:
         model: EnhancedBaseModel = get_accounting_model(model_name)
         getter_name = model.get_download_method_name()
         if getter_name:
-            getter = sleep_and_retry(limits(calls=60, period=60)(getattr(accounting_api, getter_name)))
+            getter = sleep_and_retry(limits(calls=50, period=60)(getattr(accounting_api, getter_name)))
             getter_signature = inspect.signature(getter)
             used_kwargs = {k: v for k, v in kwargs.items()
                            if k in getter_signature.parameters and v is not None}
