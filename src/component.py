@@ -16,6 +16,7 @@ from xero.utility import XeroException
 from xero.xero_parser import XeroParser
 from xero.table_definition_factory import TableDefinitionFactory
 
+
 # configuration variables
 KEY_MODIFIED_SINCE = 'modified_since'
 KEY_ENDPOINTS = 'endpoints'
@@ -83,6 +84,7 @@ class Component(ComponentBase):
             for pagen_num, page in enumerate(self.client.get_accounting_object(tenant_id=tenant_id,
                                                                                model_name=endpoint_name,
                                                                                **kwargs)):
+                logging.info(f"Processing page {pagen_num} of {endpoint_name} for tenant {tenant_id}")
                 parsed_data = XeroParser().parse_data(page)
                 self.save_parsed_data(parsed_data, pagen_num, tenant_id, endpoint_name)
                 saved_tables.update(list(parsed_data.keys()))
