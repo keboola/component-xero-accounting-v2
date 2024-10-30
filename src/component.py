@@ -16,6 +16,12 @@ from xero.utility import XeroException
 from xero.xero_parser import XeroParser
 from xero.table_definition_factory import TableDefinitionFactory
 
+logging.basicConfig()
+logging.getLogger().setLevel(logging.DEBUG)
+requests_log = logging.getLogger("urllib3")
+requests_log.setLevel(logging.DEBUG)
+requests_log.propagate = True
+
 
 # configuration variables
 KEY_MODIFIED_SINCE = 'modified_since'
