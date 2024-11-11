@@ -68,13 +68,15 @@ class Component(ComponentBase):
         for endpoint in endpoints:
             self.download_endpoint(endpoint_name=endpoint, tenant_ids=tenant_ids_to_download,
                                    if_modified_since=modified_since)
+
         self.refresh_token_and_save_state()
 
     def refresh_token_and_save_state(self) -> None:
-        logging.info("Refresh token and save it to state")
+        logging.info("Refresh token and save to state")
         self._refresh_client_token()
         self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = json.dumps(self.client.get_xero_oauth2_token_dict())
         self.write_state_file(self.new_state)
+        logging.info("Refreshed and saved token")
 
     def _refresh_client_token(self) -> None:
         try:

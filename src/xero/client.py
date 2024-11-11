@@ -59,7 +59,7 @@ class XeroClient:
         self._available_tenant_ids = available_tenants
 
     @retry(wait=wait_exponential(multiplier=1, min=4, max=10),
-           stop=stop_after_attempt(5),
+           stop=stop_after_attempt(3),
            retry=retry_if_exception_type((HTTPStatusException, ProtocolError)))
     def force_refresh_token(self):
         try:
