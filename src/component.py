@@ -71,12 +71,14 @@ class Component(ComponentBase):
         self.refresh_token_and_save_state()
 
     def refresh_token_and_save_state(self) -> None:
+        logging.info("Refresh token and save it to state")
         self._refresh_client_token()
         self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = json.dumps(self.client.get_xero_oauth2_token_dict())
         self.write_state_file(self.new_state)
 
     def _refresh_client_token(self) -> None:
         try:
+            logging.info("Refreshing token")
             self.client.force_refresh_token()
         except XeroException as xero_exc:
             raise UserException("Failed to authorize the component. Please reauthorize the component. "

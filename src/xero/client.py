@@ -2,6 +2,9 @@ from dataclasses import dataclass
 import inspect
 from typing import Dict, Iterable, List
 
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+from urllib3.exceptions import ProtocolError
+
 from keboola.component.dao import OauthCredentials, TableDefinition
 
 from xero_python.identity import IdentityApi
@@ -55,12 +58,15 @@ class XeroClient:
             raise XeroException(oauth_err) from oauth_err
         self._available_tenant_ids = available_tenants
 
+    @retry(wait=wait_exponential(multiplier=1, min=4, max=10),
+           stop=stop_after_attempt(5),
+           retry=retry_if_exception_type((HTTPStatusException, ProtocolError)))
     def force_refresh_token(self):
         try:
             self._api_client.refresh_oauth2_token()
-        except HTTPStatusException as http_error:
+        except (HTTPStatusException, ProtocolError) as error:
             raise XeroException(
-                "Failed to authenticate the client, please reauthorize the component") from http_error
+                "Failed to authenticate the client, please reauthorize the component") from error
 
     def get_available_tenant_ids(self):
         if not self._available_tenant_ids:
