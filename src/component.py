@@ -68,8 +68,8 @@ class Component(ComponentBase):
         for endpoint in endpoints:
             self.download_endpoint(endpoint_name=endpoint, tenant_ids=tenant_ids_to_download,
                                    if_modified_since=modified_since)
-
-        self.refresh_token_and_save_state()
+        if not self.new_state:
+            self.refresh_token_and_save_state()
 
     def refresh_token_and_save_state(self) -> None:
         logging.info("Refresh token and save to state")
