@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import inspect
+from http.client import RemoteDisconnected
 from typing import Dict, Iterable, List
 
 from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
@@ -60,7 +61,7 @@ class XeroClient:
 
     @retry(wait=wait_exponential(multiplier=1, min=4, max=10),
            stop=stop_after_attempt(3),
-           retry=retry_if_exception_type((HTTPStatusException, ProtocolError)))
+           retry=retry_if_exception_type((HTTPStatusException, ProtocolError, RemoteDisconnected)))
     def force_refresh_token(self):
         try:
             self._api_client.refresh_oauth2_token()
