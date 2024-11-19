@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Dict, List, Set, Union, overload
+from typing import Dict, List, Set, Union
 import dateparser
 import os
 import csv
