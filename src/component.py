@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Dict, List, Set, Union
+from typing import Dict, List, Set, Union, overload
 import dateparser
 import os
 import csv
@@ -15,13 +15,6 @@ from xero.client import XeroClient
 from xero.utility import XeroException
 from xero.xero_parser import XeroParser
 from xero.table_definition_factory import TableDefinitionFactory
-
-logging.basicConfig()
-logging.getLogger().setLevel(logging.DEBUG)
-requests_log = logging.getLogger("urllib3")
-requests_log.setLevel(logging.DEBUG)
-requests_log.propagate = True
-
 
 # configuration variables
 KEY_MODIFIED_SINCE = 'modified_since'
@@ -50,6 +43,18 @@ class Component(ComponentBase):
                          required_image_parameters=REQUIRED_IMAGE_PARS)
 
         register_csv_dialect()
+
+    @staticmethod
+    def set_debug_mode():
+        """
+        Set the default logger to verbose mode.
+        """
+        logging.basicConfig()
+        logging.getLogger().setLevel(logging.DEBUG)
+        requests_log = logging.getLogger("urllib3")
+        requests_log.setLevel(logging.DEBUG)
+        requests_log.propagate = True
+        logging.getLogger().setLevel(logging.DEBUG)
 
     def run(self):
         params: Dict = self.configuration.parameters
