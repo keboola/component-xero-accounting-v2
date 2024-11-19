@@ -1,6 +1,10 @@
 from dataclasses import dataclass
 import inspect
+from http.client import RemoteDisconnected
 from typing import Dict, Iterable, List
+
+from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+from urllib3.exceptions import ProtocolError
 
 from keboola.component.dao import OauthCredentials, TableDefinition
 
@@ -15,6 +19,8 @@ from xero_python.exceptions.http_status_exceptions import OAuth2InvalidGrantErro
 
 # Always import utility to monkey patch BaseModel
 from .utility import XeroException, get_accounting_model, EnhancedBaseModel
+
+from ratelimit import limits, sleep_and_retry
 
 
 @dataclass
@@ -53,12 +59,15 @@ class XeroClient:
             raise XeroException(oauth_err) from oauth_err
         self._available_tenant_ids = available_tenants
 
+    @retry(wait=wait_exponential(multiplier=1, min=4, max=10),
+           stop=stop_after_attempt(3),
+           retry=retry_if_exception_type((HTTPStatusException, ProtocolError, RemoteDisconnected)))
     def force_refresh_token(self):
         try:
             self._api_client.refresh_oauth2_token()
-        except HTTPStatusException as http_error:
+        except (HTTPStatusException, ProtocolError) as error:
             raise XeroException(
-                "Failed to authenticate the client, please reauthorize the component") from http_error
+                "Failed to authenticate the client, please reauthorize the component") from error
 
     def get_available_tenant_ids(self):
         if not self._available_tenant_ids:
@@ -70,7 +79,7 @@ class XeroClient:
         model: EnhancedBaseModel = get_accounting_model(model_name)
         getter_name = model.get_download_method_name()
         if getter_name:
-            getter = getattr(accounting_api, getter_name)
+            getter = sleep_and_retry(limits(calls=50, period=60)(getattr(accounting_api, getter_name)))
             getter_signature = inspect.signature(getter)
             used_kwargs = {k: v for k, v in kwargs.items()
                            if k in getter_signature.parameters and v is not None}

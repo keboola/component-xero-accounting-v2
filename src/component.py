@@ -44,6 +44,18 @@ class Component(ComponentBase):
 
         register_csv_dialect()
 
+    @staticmethod
+    def set_debug_mode():
+        """
+        Set the default logger to verbose mode.
+        """
+        logging.basicConfig()
+        logging.getLogger().setLevel(logging.DEBUG)
+        requests_log = logging.getLogger("urllib3")
+        requests_log.setLevel(logging.DEBUG)
+        requests_log.propagate = True
+        logging.getLogger().setLevel(logging.DEBUG)
+
     def run(self):
         params: Dict = self.configuration.parameters
         endpoints: List[str] = params[KEY_ENDPOINTS]
@@ -61,15 +73,19 @@ class Component(ComponentBase):
         for endpoint in endpoints:
             self.download_endpoint(endpoint_name=endpoint, tenant_ids=tenant_ids_to_download,
                                    if_modified_since=modified_since)
-        self.refresh_token_and_save_state()
+        if not self.new_state:
+            self.refresh_token_and_save_state()
 
     def refresh_token_and_save_state(self) -> None:
+        logging.info("Refresh token and save to state")
         self._refresh_client_token()
         self.new_state[KEY_STATE_OAUTH_TOKEN_DICT] = json.dumps(self.client.get_xero_oauth2_token_dict())
         self.write_state_file(self.new_state)
+        logging.info("Refreshed and saved token")
 
     def _refresh_client_token(self) -> None:
         try:
+            logging.info("Refreshing token")
             self.client.force_refresh_token()
         except XeroException as xero_exc:
             raise UserException("Failed to authorize the component. Please reauthorize the component. "
@@ -83,6 +99,7 @@ class Component(ComponentBase):
             for pagen_num, page in enumerate(self.client.get_accounting_object(tenant_id=tenant_id,
                                                                                model_name=endpoint_name,
                                                                                **kwargs)):
+                logging.info(f"Processing page {pagen_num} of {endpoint_name} for tenant {tenant_id}")
                 parsed_data = XeroParser().parse_data(page)
                 self.save_parsed_data(parsed_data, pagen_num, tenant_id, endpoint_name)
                 saved_tables.update(list(parsed_data.keys()))
