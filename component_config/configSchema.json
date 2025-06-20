@@ -39,7 +39,8 @@
           "Invoices",
           "BankTransactions",
           "Journals",
-          "ManualJournals"
+          "ManualJournals",
+          "TrackingCategories"
         ]
       },
       "format": "select",
