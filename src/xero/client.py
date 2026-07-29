@@ -1,9 +1,11 @@
 from dataclasses import dataclass
 import inspect
+import logging
 from http.client import RemoteDisconnected
 from typing import Dict, Iterable, List
 
-from tenacity import retry, wait_exponential, stop_after_attempt, retry_if_exception_type
+from tenacity import (retry, wait_exponential, stop_after_attempt, retry_if_exception_type, retry_if_exception,
+                      before_sleep_log)
 from urllib3.exceptions import ProtocolError
 
 from keboola.component.dao import OauthCredentials, TableDefinition
@@ -21,6 +23,35 @@ from xero_python.exceptions.http_status_exceptions import OAuth2InvalidGrantErro
 from .utility import XeroException, get_accounting_model, EnhancedBaseModel
 
 from ratelimit import limits, sleep_and_retry
+
+# Bounded retry of a single accounting API fetch on transient upstream failures.
+RETRY_MAX_ATTEMPTS = 3
+# Non-5xx statuses that still signal a temporary condition (any 5xx is retried as well).
+RETRYABLE_NON_SERVER_STATUS = frozenset({429})
+
+
+def _is_transient_error(exception: BaseException) -> bool:
+    """
+    Whether an exception raised by an accounting API call is worth retrying.
+
+    Only transport-level errors and server-side/rate-limit HTTP statuses qualify.
+    Client errors (400/401/403/404, ...) are never retried, so they keep failing
+    immediately exactly as before. Anything whose status cannot be determined is
+    treated as non-retryable, so the original exception propagates untouched.
+    """
+    if isinstance(exception, (ProtocolError, RemoteDisconnected)):
+        return True
+    if not isinstance(exception, HTTPStatusException):
+        return False
+    try:
+        status = exception.status
+    except Exception:
+        # Some Xero exceptions derive the status from the response body, which can
+        # fail to parse. Never let that mask the exception the caller should see.
+        return False
+    if not isinstance(status, int):
+        return False
+    return status >= 500 or status in RETRYABLE_NON_SERVER_STATUS
 
 
 @dataclass
@@ -74,6 +105,21 @@ class XeroClient:
             self.refresh_available_tenant_ids()
         return self._available_tenant_ids
 
+    @retry(wait=wait_exponential(multiplier=1, min=4, max=10),
+           stop=stop_after_attempt(RETRY_MAX_ATTEMPTS),
+           retry=retry_if_exception(_is_transient_error),
+           before_sleep=before_sleep_log(logging.getLogger(), logging.WARNING),
+           reraise=True)
+    def _fetch_accounting_page(self, getter, tenant_id: str, **kwargs):
+        """
+        Perform a single accounting API fetch, retrying transient upstream failures.
+
+        On success the getter's return value is passed through untouched. Once the
+        attempts are exhausted the original exception is re-raised unchanged, so a
+        persistent failure still fails the job.
+        """
+        return getter(tenant_id, **kwargs)
+
     def get_accounting_object(self, tenant_id: str, model_name: str, **kwargs) -> Iterable[List[EnhancedBaseModel]]:
         accounting_api = AccountingApi(self._api_client)
         model: EnhancedBaseModel = get_accounting_model(model_name)
@@ -86,7 +132,7 @@ class XeroClient:
             if 'page' in getter_signature.parameters:
                 used_kwargs['page'] = 1
                 while True:
-                    accounting_object = getter(tenant_id, **used_kwargs)
+                    accounting_object = self._fetch_accounting_page(getter, tenant_id, **used_kwargs)
                     if accounting_object.is_empty_list():
                         break
                     yield accounting_object.to_list()
@@ -94,13 +140,13 @@ class XeroClient:
             elif 'offset' in getter_signature.parameters:
                 used_kwargs['offset'] = 0
                 while True:
-                    accounting_object = getter(tenant_id, **used_kwargs)
+                    accounting_object = self._fetch_accounting_page(getter, tenant_id, **used_kwargs)
                     if accounting_object.is_empty_list():
                         break
                     yield accounting_object.to_list()
                     used_kwargs['offset'] = used_kwargs['offset'] + 100
             else:
-                yield getter(tenant_id, **used_kwargs).to_list()
+                yield self._fetch_accounting_page(getter, tenant_id, **used_kwargs).to_list()
         else:
             raise XeroException(
                 f"Requested model ({model_name}) getter function not found.")
