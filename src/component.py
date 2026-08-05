@@ -7,7 +7,7 @@ import csv
 
 from keboola.component.base import ComponentBase
 from keboola.component.exceptions import UserException
-from keboola.component.dao import TableDefinition
+from keboola.component.dao import OauthCredentials, TableDefinition
 from keboola.component.interface import register_csv_dialect
 from keboola.utils.helpers import comma_separated_values_to_list
 
@@ -143,8 +143,28 @@ class Component(ComponentBase):
             self._init_client_from_config()
         logging.info("Client Authorized")
 
-    def _init_client_from_state(self, state_authorization_params: Union[str, Dict]) -> None:
+    def _get_oauth_credentials(self) -> OauthCredentials:
+        """
+        Return the OAuth credentials of the configuration.
+
+        `Configuration.oauth_credentials` is `None` whenever the configuration carries no
+        `authorization.oauth_api.credentials` section - the component was never authorized,
+        or its authorization was removed. Reading `.data` off that `None` raised a bare
+        `AttributeError`, failing the job as an opaque internal error that told the user
+        nothing. Raise a `UserException` instead: the job still fails, but as a user error
+        with a message the user can act on. When the authorization is present the
+        credentials are returned unchanged.
+        """
         oauth_credentials = self.configuration.oauth_credentials
+        if oauth_credentials is None:
+            raise UserException("The component is not authorized: no Xero authorization was found in the "
+                                "configuration. Please authorize the component and run it again."
+                                "\n Due to the functioning of the XERO authorization, if a component fails,"
+                                " the component must be reauthorized.")
+        return oauth_credentials
+
+    def _init_client_from_state(self, state_authorization_params: Union[str, Dict]) -> None:
+        oauth_credentials = self._get_oauth_credentials()
         oauth_credentials.data = self._load_state_oauth(state_authorization_params)
         self.client = XeroClient(oauth_credentials)
         try:
@@ -164,7 +184,7 @@ class Component(ComponentBase):
             raise UserException("Invalid state, please contact support")
 
     def _init_client_from_config(self) -> None:
-        oauth_credentials = self.configuration.oauth_credentials
+        oauth_credentials = self._get_oauth_credentials()
         if isinstance(oauth_credentials.data.get("scope"), str):
             oauth_credentials.data["scope"] = oauth_credentials.data["scope"].split(" ")
         self.client = XeroClient(oauth_credentials)
