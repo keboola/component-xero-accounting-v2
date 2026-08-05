@@ -158,9 +158,9 @@ class Component(ComponentBase):
         oauth_credentials = self.configuration.oauth_credentials
         if oauth_credentials is None:
             raise UserException("The component is not authorized: no Xero authorization was found in the "
-                                "configuration. Please authorize the component and run it again."
-                                "\n Due to the functioning of the XERO authorization, if a component fails,"
-                                " the component must be reauthorized.")
+                                "configuration. Please authorize the component and run it again.\n"
+                                "Note that due to the way Xero authorization works, the component must be "
+                                "reauthorized after a failure.")
         return oauth_credentials
 
     def _init_client_from_state(self, state_authorization_params: Union[str, Dict]) -> None:
